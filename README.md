@@ -19,17 +19,26 @@
 | 平台 | 形态 | 说明 |
 |---|---|---|
 | 浏览器 / 网页 | 单文件 HTML | 直接打开 `Time Recorder.html` 即可运行 |
-| Windows | `Time Recorder.exe`（免安装） | pywebview + WebView2，双击即用 |
-| Windows | 安装包 | NSIS 打包，开始菜单 / 桌面快捷方式 / 卸载程序 |
-| HarmonyOS | `.hap` | Stage 模型 ArkTS 工程，支持鸿蒙系统级通知 |
+| Windows | 免安装 exe | pywebview + WebView2，双击即用（见上方「📦 下载」） |
+| Windows | 安装包 | NSIS 打包，开始菜单 / 桌面快捷方式 / 卸载程序（需本地自行构建） |
+| HarmonyOS | `.hap` | Stage 模型 ArkTS 工程，支持鸿蒙系统级通知（需 DevEco 构建） |
 
 ## 🚀 快速开始
 
-1. 克隆或下载本仓库
-2. 浏览器直接打开 `Time Recorder.html`，或运行 `windows/Time Recorder.exe`
-3. 登录后即可使用；数据默认存本地，配置 Supabase 后开启云端同步
+- **网页版**：直接打开 `Time Recorder.html`（或访问在线体验地址），或用浏览器打开 `dist/index.html`。
+- **Windows 桌面版**：从 **GitHub Release** 下载免安装 exe（见下方「📦 下载」），双击即用；或按「🛠 开发构建」自行打包。
 
 > 网页版在线体验地址：https://04d7a58ec3914f41a79752264ed0683a.sh2.agentos-app.net
+> 仓库地址：https://github.com/shurenzZ/Time-Recorder
+
+## 📦 下载
+
+| 平台 | 版本 | 下载 |
+|---|---|---|
+| Windows 免安装 exe | v1.0.0 | ⬇ [Time-Recorder-Windows-x64.exe](https://github.com/shurenzZ/Time-Recorder/releases/download/v1.0.0/Time-Recorder-Windows-x64.exe) |
+| 全部 Release | — | [Releases 页](https://github.com/shurenzZ/Time-Recorder/releases) |
+
+> ⚠️ Windows 版需系统装有 **Microsoft Edge WebView2 运行时**（Win10/11 多数自带）；exe 为构建产物，不入仓库，随 Release 发布。
 
 ## 🔧 技术栈
 
@@ -43,10 +52,12 @@
 
 ```
 ├── Time Recorder.html        # 权威源码（单文件应用，三端共用，改动以此为准）
-├── supabase-schema.sql       # Supabase 建表脚本
+├── supabase-schema.sql       # Supabase 建表脚本（唯一权威，部署请用此版本）
 ├── dist/index.html           # 网页部署副本（= Time Recorder.html 的复制）
-├── windows/                  # Windows 桌面端（wrapper.py / installer.nsi / 安装包）
+├── windows/                  # Windows 桌面端（wrapper.py / installer.nsi / README）
 │   ├── Time Recorder.html    # 桌面端打包用副本（= 权威 HTML 的复制）
+│   ├── wrapper.py            # pywebview 桌面封装（打包入口）
+│   └── installer.nsi         # NSIS 安装包脚本
 ├── harmony-app/              # 鸿蒙 ArkTS 工程（构建见其 README）
 │   └── .../rawfile/index.html# 鸿蒙端 Web 加载的副本（= 权威 HTML 的复制）
 ├── gen_manual_pdf.py         # 从手册内容生成「使用手册.pdf」（需 reportlab）
@@ -56,6 +67,8 @@
 └── SETUP.md                  # 环境与部署说明
 ```
 
+> 构建产物（`windows/dist/`、`windows/build/`、`windows/Time Recorder Setup.exe`、`.venv-win`、`.venv-pdf`、`.ohos/` 签名证书等）均被 `.gitignore` 排除，**不入库**。exe 通过 GitHub Release 发布。
+
 > ⚠️ **重要：HTML 唯一权威源**。三端（网页 / Windows / 鸿蒙）共用同一个 HTML，仓库内存在 `dist/index.html`、`windows/Time Recorder.html`、`harmony-app/.../rawfile/index.html` 三份副本，它们必须与 `Time Recorder.html` 保持一致。**修改请只在 `Time Recorder.html` 中进行，然后运行 `sync-html.bat`（Windows）或 `bash sync-html.sh` 同步到其余三处**，避免多端功能不一致。
 
 ## 🛠 开发构建
@@ -64,9 +77,13 @@
 
 ```bash
 cd windows
-python -m PyInstaller --onefile --windowed --name "Time Recorder" \
-  --add-data "Time Recorder.html;." --collect-all webview \
-  --hidden-import pythonnet --hidden-import clr --hidden-import clr_loader wrapper.py
+python -m venv .venv-win                              # 首次：创建构建环境
+.venv-win\Scripts\pip install pywebview pyinstaller   # 首次：安装依赖
+.venv-win\Scripts\pyinstaller --noconfirm --onefile --windowed \
+  --name "Time Recorder" --add-data "Time Recorder.html;." \
+  --collect-all webview --hidden-import pythonnet --hidden-import clr \
+  wrapper.py
+# 产物：windows\dist\Time Recorder.exe（构建产物不入库，随 Release 发布）
 ```
 
 ### Windows 安装包（NSIS）
@@ -104,6 +121,7 @@ bash git-push.sh -f "覆盖说明"    # 冲突时强制推送
 - 云同步需自建 Supabase 项目并执行 `supabase-schema.sql`（表：`tasks` / `plans` / `records` / `countdown`）
 - AI 助手需在应用设置中填入自有 DashScope API Key
 - 桌面端系统通知与记住登录基于 Windows 系统能力（WebView2 / Credential Manager）
+- Windows 免安装 exe 为构建产物（不入库），通过 GitHub Release 发布；如需发新版本：本地重新打包 → 在 Releases 页新建 Release 并上传 exe。
 
 ---
 *个人自用项目，欢迎学习参考。*
