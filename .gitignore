@@ -1,0 +1,49 @@
+# ===== Time Recorder 构建产物 / 本地缓存（不推送到 GitHub） =====
+
+# ---- Windows 桌面端（PyInstaller / NSIS 产物，可重新生成） ----
+windows/dist/
+windows/build/
+windows/__pycache__/
+windows/*.spec
+windows/Time Recorder Setup.exe
+windows/Time Recorder Portable.zip
+windows/portable_test/
+windows/Data/
+# Windows 打包用 Python 虚拟环境（含 pywebview/pyinstaller，可重建，体量大不入库）
+windows/.venv-win/
+
+# ---- HarmonyOS 工程构建产物 ----
+harmony-app/.hvigor/
+harmony-app/.idea/
+harmony-app/build/
+harmony-app/entry/build/
+harmony-app/node_modules/
+harmony-app/oh_modules/
+harmony-app/local.properties
+harmony-app/.preview/
+harmony-app/.cxx/
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+*.log
+
+# ---- 项目内部数据（WorkBuddy 会话记忆，含内部配置信息，不公开） ----
+.workbuddy/
+
+# ---- 本地构建依赖（PyInstaller 依赖缓存，可重新生成） ----
+_build_deps/
+
+# ---- PDF 生成用本地 Python 虚拟环境（含 reportlab，可重建） ----
+.venv-pdf/
+
+# ---- 本地构建工具（NSIS 编译器，可重新下载，无需入库） ----
+_nsis/
+
+# ---- 鸿蒙签名证书 / 密钥（含敏感密钥，严禁提交） ----
+.ohos/
+harmony-app/build-profile.json5.signing-material/
+harmony-app/*.p12
+harmony-app/*.cer
+harmony-app/*.p7b
+

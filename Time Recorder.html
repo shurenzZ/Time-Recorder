@@ -1,0 +1,3531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Time Recorder · 时间记录器</title>
+  <!-- Supabase 客户端（CDN）。主用 jsDelivr，加载失败时自动切换到 unpkg 兜底，避免 CDN 被墙导致云端整体失效 -->
+  <script>
+    function __trSbFallback(){
+      if (window.supabase) return;
+      var s=document.createElement('script');
+      s.src='https://unpkg.com/@supabase/supabase-js@2';
+      s.onload=function(){ if(window.__trInitSupabase) window.__trInitSupabase(); };
+      document.head.appendChild(s);
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="__trSbFallback()"></script>
+  <!-- 统计图表：Chart.js（轻量，用于完成率环形图 / 优先级条形图） -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <!-- AI 解析文献：pdf.js（纯前端提取 PDF 文本，无需后端） -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <style>
+    /* ============ 全局变量与基础样式 ============ */
+    :root {
+      --accent: #3B82F6;          /* 主色调（需求指定） */
+      --accent-soft: rgba(59, 130, 246, 0.15);
+      --bg-1: #e0e7ff;
+      --bg-2: #f0f9ff;
+      --bg-3: #fae8ff;
+      --text: #1f2937;
+      --text-soft: #6b7280;
+      --glass: rgba(255, 255, 255, 0.55);
+      --glass-strong: rgba(255, 255, 255, 0.75);
+      --border: rgba(255, 255, 255, 0.6);
+      --surface: rgba(255, 255, 255, 0.6);        /* 卡片/输入框等面板底色（深色模式覆盖） */
+      --surface-solid: rgba(255, 255, 255, 0.92);  /* 浮层/菜单等更实底色 */
+      --radius: 18px;
+      --shadow: 0 8px 32px rgba(31, 41, 55, 0.12);
+    }
+
+    /* 深浅色切换时的平滑过渡 */
+    body, .card, input, select, textarea, button, .setting-row, .chart-box,
+    .ai-textarea, .ai-result, .ctx-menu, nav.tabs button, .plan-item, .modal-card {
+      transition: background-color .25s ease, color .2s ease, border-color .25s ease;
+    }
+
+    /* ============ 深色模式（在 <html data-theme="dark"> 时生效） ============ */
+    :root[data-theme="dark"] {
+      --accent: #60A5FA;
+      --accent-soft: rgba(96, 165, 250, 0.18);
+      --bg-1: #0f172a;
+      --bg-2: #111827;
+      --bg-3: #1e1b2e;
+      --text: #e5e7eb;
+      --text-soft: #9ca3af;
+      --glass: rgba(30, 41, 59, 0.55);
+      --glass-strong: rgba(30, 41, 59, 0.78);
+      --border: rgba(148, 163, 184, 0.22);
+      --surface: rgba(30, 41, 59, 0.6);
+      --surface-solid: rgba(15, 23, 42, 0.96);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--bg-1), var(--bg-2) 45%, var(--bg-3));
+      background-attachment: fixed;
+      padding: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .glass {
+      background: var(--glass);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+    }
+    button:active { transform: scale(0.96); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(59,130,246,.4); }
+    .btn-ghost { background: var(--glass-strong); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #ef4444; color: #fff; }
+
+    input, select {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+
+    /* ============ 登录视图 ============ */
+    #login-view {
+      max-width: 380px;
+      margin: 8vh auto;
+      padding: 32px;
+      text-align: center;
+    }
+    #login-view h1 { font-size: 26px; margin-bottom: 6px; }
+    #login-view p.sub { color: var(--text-soft); margin-bottom: 22px; font-size: 13px; }
+    #login-view form { display: flex; flex-direction: column; gap: 12px; }
+    #login-msg { font-size: 13px; min-height: 18px; }
+    .msg-err { color: #ef4444; }
+    .msg-ok { color: #16a34a; }
+
+    /* ============ 应用框架 ============ */
+    #app-view { max-width: 1100px; margin: 0 auto; }
+
+    header.app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 22px;
+      margin-bottom: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+    .brand .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--text-soft); }
+
+    nav.tabs {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+    }
+    nav.tabs button {
+      background: transparent;
+      color: var(--text-soft);
+      box-shadow: none;
+      white-space: nowrap;
+    }
+    nav.tabs button.active { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(59,130,246,.4); }
+
+    main { padding: 4px; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .timer-wrap { max-width: 560px; margin: 0 auto; }
+
+    .card { padding: 22px; }
+    .card h2 { font-size: 16px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    .card h3 { font-size: 14px; margin: 14px 0 8px; color: var(--text-soft); }
+
+    .timer-display {
+      font-size: 64px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 2px;
+      font-variant-numeric: tabular-nums;
+      margin: 10px 0 4px;
+    }
+    .timer-state { text-align: center; color: var(--text-soft); font-size: 14px; margin-bottom: 18px; }
+    .mode-switch { display: flex; gap: 8px; justify-content: center; margin-bottom: 14px; }
+    .mode-switch button { background: var(--glass-strong); color: var(--text-soft); }
+    .mode-switch button.active { background: var(--accent); color: #fff; }
+    .countdown-input { display: none; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .cd-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+    .cd-row input { width: 72px; text-align: center; }
+    .cd-presets { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+    .cd-presets button { background: var(--glass-strong); color: var(--text); border: 1px solid var(--glass-strong); border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    .cd-presets button:hover { border-color: var(--accent); color: var(--accent); }
+    .target-input { display: none; flex-direction: column; align-items: flex-start; gap: 9px; margin-bottom: 14px; padding: 10px 12px; background: var(--glass-strong); border-radius: 10px; }
+    .target-input > label { font-size: 13px; color: var(--text-soft); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .target-input input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+    .target-input .cd-row { font-size: 13px; color: var(--text-soft); }
+    .target-autostop { margin-top: 2px; }
+    .timer-controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 13px; color: var(--text-soft); }
+
+    .tag {
+      font-size: 12px; padding: 2px 10px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent); font-weight: 600;
+    }
+
+    .filter-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(0,0,0,.06); }
+    th { color: var(--text-soft); font-weight: 600; font-size: 13px; }
+    .empty { text-align: center; color: var(--text-soft); padding: 30px; }
+
+    .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+    @media (max-width: 640px) { .stat-cards { grid-template-columns: 1fr; } }
+    .stat-box { padding: 18px; text-align: center; }
+    .stat-box .num { font-size: 30px; font-weight: 700; color: var(--accent); }
+    .stat-box .lbl { font-size: 13px; color: var(--text-soft); margin-top: 4px; }
+
+    .heatmap { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; }
+    .heat-cell { aspect-ratio: 1; border-radius: 4px; background: rgba(59,130,246,.08); }
+    .heat-legend { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text-soft); margin-top: 8px; }
+
+    .streak-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      color: #fff; padding: 8px 16px; border-radius: 999px; font-weight: 700; margin-bottom: 14px;
+    }
+
+    .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(0,0,0,.06); flex-wrap: wrap; }
+    .setting-row .desc { font-size: 13px; color: var(--text-soft); }
+
+    #toast {
+      position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px);
+      background: rgba(31,41,55,.92); color: #fff; padding: 12px 20px; border-radius: 12px;
+      font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s ease; z-index: 99;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .sync-pill {
+      font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600;
+    }
+    .sync-on { background: rgba(22,163,74,.15); color: #16a34a; }
+    .sync-off { background: rgba(107,114,128,.18); color: #6b7280; }
+    .sync-warn { background: rgba(245,158,11,.18); color: #d97706; }
+
+    /* 统计看板：同步状态条 + 刷新按钮 */
+    .stats-sync-row { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; flex-wrap: wrap; }
+    .stats-sync-row .sync-pill { cursor: default; }
+    .stats-sync-row button { font-size: 12px; padding: 5px 12px; }
+
+    /* 同步诊断结果 */
+    .diag-pre {
+      width: 100%; max-height: 280px; overflow: auto; margin: 0;
+      background: var(--glass-strong); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; font-size: 12.5px; line-height: 1.7; color: var(--text);
+      white-space: pre-wrap; word-break: break-word;
+    }
+
+    .pager { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 12px; font-size: 13px; color: var(--text-soft); }
+
+    /* ============ 清单页 ============ */
+    .plan-add-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .plan-add-row input[type=text], .plan-add-row select, .plan-add-row input[type=time] { flex: 1; min-width: 120px; }
+    .plan-add-row input[type=time] { flex: 0 0 130px; min-width: 130px; }
+    .plan-add-row #add-plan-btn { flex: 0 0 auto; white-space: nowrap; }
+    .hint { font-size: 12px; color: var(--text-soft); }
+
+    .plan-group-title {
+      font-size: 13px; font-weight: 700; color: var(--text-soft);
+      margin: 16px 0 8px; padding-left: 2px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .plan-group-title .tag { transform: scale(.95); }
+    .slogan {
+      text-align: center; font-size: 26px; font-weight: 800; letter-spacing: 1px;
+      color: transparent; background: linear-gradient(90deg, #3B82F6, #6366F1);
+      -webkit-background-clip: text; background-clip: text;
+      margin-bottom: 14px; text-shadow: 0 2px 18px rgba(59,130,246,.18);
+    }
+    .plan-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 13px; border-radius: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      margin-bottom: 8px; cursor: default; -webkit-user-select: none; user-select: none;
+    }
+    .plan-item.done { opacity: .4; padding: 7px 13px; }
+    .plan-item.done .plan-content { text-decoration: line-through; }
+    .plan-item.done .imp-dot { display: none; }
+    .plan-done-sep {
+      font-size: 12px; font-weight: 700; color: var(--text-soft);
+      text-align: center; margin: 16px 0 10px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .plan-done-sep::before, .plan-done-sep::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .plan-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .imp-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+    .imp-high { background: #ef4444; }
+    .imp-medium { background: #f59e0b; }
+    .imp-low { background: #eab308; }
+    .plan-content { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plan-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .plan-time { font-size: 12px; color: var(--text-soft); background: var(--glass-strong); padding: 2px 9px; border-radius: 999px; }
+    .imp-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 700; color: #fff; }
+    .imp-badge.high { background: #ef4444; }
+    .imp-badge.medium { background: #f59e0b; }
+    .imp-badge.low { background: #eab308; }
+    .plan-check { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+
+    /* 右键菜单 */
+    .ctx-menu {
+      position: fixed; z-index: 200; min-width: 140px;
+      background: var(--surface-solid); backdrop-filter: blur(18px);
+      border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .ctx-menu[hidden] { display: none; }
+    .ctx-menu button {
+      background: transparent; color: var(--text); text-align: left;
+      border-radius: 9px; padding: 9px 12px; font-size: 13px; font-weight: 500;
+    }
+    .ctx-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+    .ctx-menu .ctx-danger:hover { background: rgba(239,68,68,.12); color: #ef4444; }
+
+    /* 复盘弹窗（柔和） */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center; padding: 18px;
+      background: rgba(99, 102, 241, 0.12); backdrop-filter: blur(4px);
+    }
+    .modal-overlay[hidden] { display: none; } /* 关键：确保 hidden 能真正隐藏弹窗 */
+    .modal-card { width: 100%; max-width: 560px; padding: 24px; border-radius: 24px; }
+    .modal-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+    .modal-emoji {
+      width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 24px; background: linear-gradient(135deg, #dbeafe, #ede9fe); box-shadow: 0 4px 14px rgba(59,130,246,.25);
+    }
+    .modal-title { font-size: 18px; font-weight: 700; }
+    .modal-sub { font-size: 13px; color: var(--text-soft); }
+    .modal-body-grid { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: center; }
+    @media (max-width: 560px) { .modal-body-grid { grid-template-columns: 1fr; } }
+    .review-total { text-align: center; font-size: 13px; color: var(--text-soft); margin-bottom: 6px; }
+    .review-total b { color: var(--accent); font-size: 15px; }
+    .review-legend { font-size: 13px; }
+    .review-legend h4 { font-size: 13px; color: var(--text-soft); margin: 4px 0 8px; font-weight: 600; }
+    .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    .legend-row .sw { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
+    .legend-row .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .legend-row .vl { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+    .review-empty { text-align: center; color: var(--text-soft); padding: 30px 10px; font-size: 14px; }
+    /* 复盘：昨日 24 小时时间轴 */
+    .review-timeline { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); }
+    .tl-title { font-size: 13px; font-weight: 600; color: var(--text-soft); margin-bottom: 10px; }
+    .tl-track {
+      position: relative; height: 40px; border-radius: 10px; overflow: hidden;
+      background: var(--surface); border: 1px solid var(--border);
+      background-image: repeating-linear-gradient(to right, transparent, transparent calc(25% - 1px), rgba(100,116,139,.28) 25%);
+    }
+    .tl-seg {
+      position: absolute; top: 0; bottom: 0; min-width: 2px; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+      box-sizing: border-box; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25);
+    }
+    .tl-seg-text {
+      color: #fff; font-size: 11px; line-height: 1.1; white-space: nowrap; padding: 0 3px;
+      text-shadow: 0 1px 2px rgba(0,0,0,.45); font-variant-numeric: tabular-nums;
+    }
+    .tl-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+    .tl-axis span { transform: translateX(-50%); }
+    .tl-axis span:first-child { transform: none; }
+    .tl-axis span:last-child { transform: translateX(0); }
+    .modal-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+    .review-launch { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 18px; padding: 12px 14px; background: var(--accent-soft); border-radius: 14px; }
+    .review-launch span { font-size: 14px; font-weight: 600; }
+    .manual-intro { color: var(--text-soft); line-height: 1.7; margin-bottom: 6px; }
+    .manual-sec { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); }
+    .manual-sec:first-of-type { border-top: none; }
+    .manual-sec h3 { font-size: 15px; margin: 0 0 8px; color: var(--accent); }
+    .manual-sec ul { margin: 0; padding-left: 18px; color: var(--text-soft); line-height: 1.8; }
+    .manual-sec li { margin-bottom: 4px; }
+    .manual-sec b { color: var(--text); }
+    .manual-tip { margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: rgba(59,130,246,.1); color: var(--text-soft); line-height: 1.7; }
+
+    /* ===== 新增：统计看板（图表 / 进度条） ===== */
+    .sec-divider { border: none; border-top: 1px dashed var(--border); margin: 22px 0 6px; }
+    .muted { color: var(--text-soft); font-size: 12px; font-weight: 400; }
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 560px) { .chart-grid { grid-template-columns: 1fr; } }
+    .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+    .chart-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; text-align: center; }
+    .chart-wrap { position: relative; height: 220px; }
+    /* ===== 新增：AI 助手页 ===== */
+    .ai-block { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
+    .ai-block h3 { font-size: 15px; margin: 0 0 6px; color: var(--accent); }
+    .ai-textarea { width: 100%; min-height: 84px; resize: vertical; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-family: inherit; font-size: 14px; color: var(--text); }
+    .ai-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .ai-actions select, .ai-actions input[type="file"] { font-family: inherit; font-size: 13px; }
+    .ai-result { margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); line-height: 1.75; }
+    .ai-result:empty { display: none; }
+    .ai-result h4 { color: var(--accent); font-size: 14px; margin: 12px 0 6px; }
+    .ai-result ul { margin: 0; padding-left: 18px; }
+    .ai-result .ai-err { color: #dc2626; font-weight: 600; }
+    .ai-plan-text { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.8; max-height: 420px; overflow: auto; }
+    .loading { display: inline-flex; align-items: center; gap: 6px; color: var(--text-soft); font-size: 13px; }
+    .loading[hidden] { display: none; }
+    .spinner { width: 14px; height: 14px; border: 2px solid rgba(59,130,246,.3); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== 新增：AI 配置区（设置页） ===== */
+    .ai-config-row { border-top: 1px dashed var(--border); margin-top: 14px; }
+    .ai-config-fields { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 4px; }
+    .ai-config-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-soft); }
+    .ai-config-fields input { font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .ai-config-fields .btn-primary { align-self: flex-start; margin-top: 2px; }
+
+    /* ============ ⏳ 倒数日页面 ============ */
+    .cd-add-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .cd-add-row input[type="text"] { flex: 1; min-width: 150px; }
+    .cd-add-row input[type="date"] { min-width: 150px; }
+    .cd-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px; margin-bottom: 10px; border-radius: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      transition: opacity .2s;
+    }
+    .cd-item.expired { opacity: .55; background: var(--glass-strong); }
+    .cd-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .cd-name { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cd-item.expired .cd-name { text-decoration: line-through; }
+    .cd-date { font-size: 13px; color: var(--text-soft); }
+    .cd-days { font-weight: 800; font-size: 16px; color: var(--accent); white-space: nowrap; }
+    .cd-item.expired .cd-days { color: #ef4444; }
+    .cd-empty { color: var(--text-soft); text-align: center; padding: 24px; }
+    @media (max-width: 640px) {
+      .cd-add-row input[type="text"], .cd-add-row input[type="date"] { width: 100%; }
+      .cd-add-row button { width: 100%; }
+    }
+
+  /* ============ AI 多轮对话（翻译 / 文献解析 / 信息聚合搜索共用） ============ */
+  .ai-followup-row { display: flex; gap: 10px; margin-top: 12px; }
+  .ai-followup-row input[type="text"] {
+    flex: 1; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface); font-family: inherit; font-size: 14px; color: var(--text);
+  }
+  .ai-followup-row .btn-primary { white-space: nowrap; }
+  .ai-export-row { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .ai-export-row .btn-ghost { font-size: 13px; }
+  details.agg-broke { margin-top: 4px; border: 1px dashed var(--border); border-radius: 12px; padding: 8px 12px; background: rgba(59,130,246,.06); }
+  details.agg-broke summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); user-select: none; }
+  details.agg-broke[open] summary { margin-bottom: 8px; }
+  .agg-broke-body { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; color: var(--text-soft); }
+  .ai-chat { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .ai-msg { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+  .ai-who { font-size: 12px; color: var(--text-soft); padding-left: 2px; }
+  .ai-bubble { padding: 10px 14px; border-radius: 14px; line-height: 1.75; font-size: 14px; word-break: break-word; }
+  .ai-user .ai-bubble { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; max-width: 85%; white-space: pre-wrap; }
+  .ai-ai .ai-bubble { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; max-width: 92%; }
+  .ai-ai .ai-bubble p, .ai-ai .ai-bubble ul, .ai-ai .ai-bubble h4 { margin: 0 0 8px; }
+  .ai-ai .ai-bubble h4 { color: var(--accent); font-size: 13px; margin-top: 10px; }
+  .ai-ai .ai-bubble ul { padding-left: 18px; }
+
+  </style>
+</head>
+<body>
+
+  <!-- ============ 登录 / 注册视图 ============ -->
+  <section id="login-view" class="glass">
+    <h1>⏱ Time Recorder</h1>
+    <p class="sub" id="login-sub">高效自律 · 时间记录器（云同步版）</p>
+    <form id="login-form">
+      <input type="text" id="login-user" placeholder="用户名" autocomplete="username" required />
+      <input type="password" id="login-pass" placeholder="密码" autocomplete="current-password" required />
+      <button type="submit" class="btn-primary" id="login-btn">登录 / 注册</button>
+      <p id="login-msg"></p>
+    </form>
+  </section>
+
+  <!-- ============ 主应用视图 ============ -->
+  <div id="app-view" hidden>
+    <header class="app-header glass">
+      <div class="brand"><span class="dot"></span> Time Recorder</div>
+      <div class="header-right">
+        <span id="sync-status" class="sync-pill sync-off">本地模式</span>
+        <span id="user-label"></span>
+        <button class="btn-ghost" id="logout-btn">退出</button>
+      </div>
+    </header>
+
+    <nav class="tabs glass">
+      <button data-page="timer" class="active">⏱ 计时</button>
+      <button data-page="plans">📝 清单</button>
+      <button data-page="history">📋 历史</button>
+      <button data-page="stats">📊 统计</button>
+      <button data-page="countdown">⏳ 倒数日</button>
+      <button data-page="manual">📖 手册</button>
+      <button data-page="ai">🤖 AI 助手</button>
+      <button data-page="settings">⚙️ 设置</button>
+    </nav>
+
+    <main>
+      <!-- ===== 页面一：计时器 ===== -->
+      <section class="page active" id="page-timer">
+        <div class="slogan">Do or Die</div>
+        <div class="timer-wrap">
+          <datalist id="tag-list">
+            <option value="学习"></option>
+            <option value="工作"></option>
+            <option value="娱乐"></option>
+            <option value="运动"></option>
+            <option value="阅读"></option>
+            <option value="其他"></option>
+          </datalist>
+          <div class="card glass">
+            <h2>⏱ 计时器</h2>
+            <div class="mode-switch">
+              <button data-mode="up" class="active">正计时</button>
+              <button data-mode="down">倒计时</button>
+            </div>
+            <div class="countdown-input" id="countdown-input">
+              <div class="cd-row" id="cd-sec-row">
+                <span>时长</span>
+                <input type="number" id="countdown-min2" min="0" max="600" value="25" />
+                <span>分</span>
+                <input type="number" id="countdown-sec" min="0" max="59" value="0" />
+                <span>秒</span>
+              </div>
+              <div class="cd-presets" id="cd-presets">
+                <button data-min="25" data-sec="0">25 min</button>
+                <button data-min="45" data-sec="0">45 min</button>
+                <button data-min="60" data-sec="0">1 h</button>
+                <button data-min="90" data-sec="0">1.5 h</button>
+                <button data-min="120" data-sec="0">2 h</button>
+              </div>
+            </div>
+
+            <div class="target-input" id="target-input">
+              <label><input type="checkbox" id="target-enable" /> 设定目标时长（到点提醒 / 自动停）</label>
+              <div id="target-body" style="display:none; width:100%; flex-direction:column; gap:9px;">
+                <div class="cd-row" id="target-sec-row">
+                  <span>目标</span>
+                  <input type="number" id="target-min2" min="0" max="600" value="25" />
+                  <span>分</span>
+                  <input type="number" id="target-sec" min="0" max="59" value="0" />
+                  <span>秒</span>
+                </div>
+                <label class="target-autostop"><input type="checkbox" id="target-autostop" /> 到点自动停止并记录</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>选择任务（来自「📝 每日清单」的今日任务）</label>
+              <select id="timer-task"></select>
+            </div>
+            <div class="timer-display" id="timer-display">00:00:00</div>
+            <div class="timer-state" id="timer-state-text">准备就绪</div>
+
+            <div class="timer-controls">
+              <button class="btn-primary" id="start-btn">开始</button>
+              <button class="btn-ghost" id="pause-btn" disabled>暂停</button>
+              <button class="btn-ghost" id="resume-btn" disabled>继续</button>
+              <button class="btn-danger" id="stop-btn" disabled>停止并记录</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 页面二：每日清单 ===== -->
+      <section class="page" id="page-plans">
+        <div class="card glass">
+          <h2>📝 每日清单</h2>
+
+          <div class="filter-bar">
+            <span>日期</span>
+            <input type="date" id="plan-date" />
+            <span style="flex:1"></span>
+            <span>排序</span>
+            <select id="plan-sort">
+              <option value="importance">按重要程度</option>
+              <option value="tag">按任务标签</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>为该日添加任务（以下字段均可留空）</label>
+            <div class="plan-add-row">
+              <input type="text" id="plan-content" placeholder="任务内容（可选）" />
+              <input type="text" id="plan-tag" list="tag-list" placeholder="标签（可选）" />
+              <input type="time" id="plan-time" title="详细时间（可选）" />
+              <select id="plan-importance" title="重要程度（可选）">
+                <option value="">重要程度（可选）</option>
+                <option value="high">高</option>
+                <option value="medium">中</option>
+                <option value="low">低</option>
+              </select>
+              <button class="btn-primary" id="add-plan-btn">+ 添加</button>
+            </div>
+            <span class="hint">提示：右键清单项可跳转到计时器开始计时；标签与「计时」页的任务标签一致。</span>
+          </div>
+
+          <div id="plan-list"></div>
+        </div>
+      </section>
+
+      <!-- ===== 页面三：历史记录 ===== -->
+      <section class="page" id="page-history">
+        <div class="card glass">
+          <h2>📋 历史记录</h2>
+          <div class="filter-bar">
+            <span>筛选：</span>
+            <button class="btn-ghost filter-btn active" data-range="day">今日</button>
+            <button class="btn-ghost filter-btn" data-range="yesterday">昨日</button>
+            <button class="btn-ghost filter-btn" data-range="week">本周</button>
+            <button class="btn-ghost filter-btn" data-range="month">本月</button>
+            <button class="btn-ghost filter-btn" data-range="all">全部</button>
+            <span style="flex:1"></span>
+            <button class="btn-primary" id="export-csv-btn">⬇ 导出 Excel(CSV)</button>
+          </div>
+          <div id="history-table-wrap"></div>
+          <div id="history-pager" class="pager"></div>
+        </div>
+      </section>
+
+      <!-- ===== 页面三：统计看板 ===== -->
+      <section class="page" id="page-stats">
+        <div class="card glass">
+          <h2>📊 数据看板</h2>
+          <div class="stats-sync-row">
+            <span id="data-sync-state" class="sync-pill sync-on">✅ 云端已同步</span>
+            <button class="btn-ghost" id="stats-refresh-btn">🔄 刷新同步</button>
+            <span class="muted" style="font-size:12px;">跨设备登录同一账号后自动同步，断网时显示本地缓存</span>
+          </div>
+          <div id="streak-wrap"></div>
+          <div class="stat-cards">
+            <div class="stat-box glass"><div class="num" id="stat-today">0</div><div class="lbl">今日总时长</div></div>
+            <div class="stat-box glass"><div class="num" id="stat-week">0</div><div class="lbl">本周总时长</div></div>
+            <div class="stat-box glass"><div class="num" id="stat-total">0</div><div class="lbl">累计总时长</div></div>
+          </div>
+
+          <div class="review-launch">
+            <span>📅 查看某天复盘</span>
+            <input type="date" id="review-pick-date" />
+            <button class="btn-primary" id="review-pick-btn">查看复盘</button>
+          </div>
+
+          <h3>近 10 周热力图（颜色越深时长越长）</h3>
+          <div class="heatmap" id="heatmap"></div>
+          <div class="heat-legend">
+            <span>少</span>
+            <span class="heat-cell" style="background:rgba(59,130,246,.08)"></span>
+            <span class="heat-cell" style="background:rgba(59,130,246,.3)"></span>
+            <span class="heat-cell" style="background:rgba(59,130,246,.55)"></span>
+            <span class="heat-cell" style="background:rgba(59,130,246,.85)"></span>
+            <span>多</span>
+          </div>
+
+          <h3>近 14 天时长趋势（分钟）</h3>
+          <canvas id="trend-chart" height="220" style="width:100%;margin-top:8px"></canvas>
+
+          <!-- ===== 任务 / 学习计划统计看板（基于「清单」完成状态） ===== -->
+          <hr class="sec-divider" />
+          <h3>📌 每日任务看板 <span class="muted">(基于「清单」)</span></h3>
+          <div class="filter-bar">
+            <span>日期</span>
+            <input type="date" id="stats-task-date" />
+          </div>
+          <div class="chart-grid">
+            <div class="chart-box">
+              <div class="chart-title">完成率（已完成 vs 未完成）</div>
+              <div class="chart-wrap"><canvas id="task-done-chart"></canvas></div>
+            </div>
+            <div class="chart-box">
+              <div class="chart-title">优先级分布（高 / 中 / 低）</div>
+              <div class="chart-wrap"><canvas id="task-priority-chart"></canvas></div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===== 页面：使用手册 ===== -->
+      <section class="page" id="page-manual">
+        <div class="card glass">
+          <h2>📖 Time Recorder 使用手册</h2>
+          <p class="manual-intro">欢迎使用 Time Recorder！这是一个帮你记录时间、安排清单、做每日复盘的小工具。数据保存在云端，电脑和手机登录同一账号即可同步。下面按页面介绍每个功能怎么用。</p>
+
+          <div class="manual-sec">
+            <h3>⏱ 计时（主页）</h3>
+            <ul>
+              <li><b>开始 / 停止</b>：点「开始计时」记一段时长，再点一次「停止」并保存为一条记录。</li>
+              <li><b>正计时 / 倒计时</b>：顶部可切换。倒计时需填时长，下方预设可直接选 <b>25 min / 45 min / 1 h / 1.5 h / 2 h</b>。</li>
+              <li><b>精确到秒</b>：时长一律按「分 + 秒」填写，记录也按秒显示（如 10分12秒）。</li>
+              <li><b>目标时长</b>（正计时下）：勾选「设定目标时长」可设目标，到点会弹提醒；勾选「到点自动停止并记录」则自动停表保存。</li>
+              <li><b>暂停 / 继续</b>：计时中可暂停，暂停时不保存，回来可继续。</li>
+              <li><b>单次上限 10 小时</b>：到点自动停止并记录。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>🗂 计时任务选择</h3>
+            <ul>
+              <li><b>任务统一在「📝 每日清单」中添加</b>：计时页的「选择任务」下拉框自动列出<b>今日清单</b>里的任务，无需单独的task管理卡片。</li>
+              <li>从清单<b>右键</b>某条目选「▶ 开始计时」，会自动跳到计时页并在下拉框中定位该任务。</li>
+              <li>计时记录会带上所选任务的<b>名称与标签</b>，便于「📋 历史 / 📊 统计」按任务归类查看。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>📝 清单</h3>
+            <ul>
+              <li>顶部选<b>日期</b>，为该日安排任务。字段（内容 / 标签 / 详细时间 / 重要程度）<b>全部可选填</b>。</li>
+              <li>重要程度分<b>高 / 中 / 低</b>，分别用 <span class="imp-dot imp-high"></span>红 <span class="imp-dot imp-medium"></span>橙 <span class="imp-dot imp-low"></span>黄 标注。</li>
+              <li><b>排序</b>：按「重要程度」整体排序；按「任务标签」则先分组、组内再按重要程度排。</li>
+              <li><b>右键</b>清单项可弹出菜单：开始计时 / 标记完成 / 删除。选「开始计时」会自动跳到计时页并定位该任务。</li>
+              <li><b>完成状态双向同步</b>：在清单勾选完成，计时页同名任务也会同步完成；反之在计时页完成任务，清单对应项也会同步完成。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>📋 历史</h3>
+            <ul>
+              <li>按 <b>今日 / 昨日 / 本周 / 本月 / 全部</b> 筛选记录，展示任务、标签、时长、日期。</li>
+              <li>记录很多时自动<b>分页</b>（每页 50 条），底部可翻页。</li>
+              <li>点「删除」可移除某条记录（不可恢复）。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>📊 统计</h3>
+            <ul>
+              <li>顶部显示<b>今日 / 本周 / 累计</b>总时长。</li>
+              <li><b>热力图</b>：近 70 天每天投入时长；<b>趋势图</b>：近 14 天时长变化。</li>
+              <li><b>连续打卡</b>：连续有记录的天数会显示「🔥 连续学习 X 天」。</li>
+              <li><b>查看某天复盘</b>：选日期点按钮，弹出那天的扇形图复盘。</li>
+              <li><b>每日任务看板</b>（下方新增）：选日期后展示该日<b>清单</b>的「完成率环形图」与「优先级分布条形图（高/中/低）」。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>🌙 每日复盘</h3>
+            <ul>
+              <li>在你<b>当天首次登入</b>网址时，立即弹出昨日的时间复盘弹窗：扇形图（按事件）+ 按标签 / 事件时长汇总。例：次日 6:30 或 9:30 登入都会立刻弹出，不再依赖固定 8:00。</li>
+              <li>复盘弹窗还带一张 <b>🕐 昨日 24 小时时间轴</b>：按真实起止时间把每段记录铺在 24 小时刻度上，彩色片段即对应任务（颜色与扇形图一致），片段上标注任务名与持续时长，鼠标悬停可看完整信息；想回看任意一天，去「统计」页用「查看某天复盘」。</li>
+              <li>前一天<b>没有记录则不弹</b>。弹窗点「知道了」或点遮罩即可关闭。</li>
+              <li>想随时回看某天，去「统计」页用「查看某天复盘」即可。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>☁ 云端同步 & 多设备</h3>
+            <ul>
+              <li>数据存在云端（Supabase），<b>电脑和手机用同一网址、同一账号</b>登录即同步。</li>
+              <li>手机：浏览器打开本网址 → 登录同一用户名密码 → 数据自动过来。</li>
+              <li><b>分享给同学</b>：直接把网址发给他，让他自己注册账号即可（数据各自隔离，互不可见）。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>⚙️ 设置</h3>
+            <ul>
+              <li><b>学习提醒</b>：设定时间，到点弹窗提醒（可开浏览器通知）。</li>
+              <li><b>🌗 深色模式</b>：开关即时切换整站深色/浅色，状态自动保存，下次打开仍是该模式。</li>
+              <li><b>导出</b>：CSV（Excel 可打开）或完整 JSON 备份；<b>导入</b>：恢复 JSON 备份。</li>
+              <li><b>清空数据</b>：删除本账号全部任务 + 记录 + 清单（含云端）。</li>
+              <li><b>🤖 AI 助手配置</b>：填写 DashScope（阿里云百炼）API Key / 模型（默认 qwen3.8-max）即可，前端默认直连 DashScope；如需走自建后端代理，可填「后端代理地址」。</li>
+            </ul>
+          </div>
+
+          <div class="manual-sec">
+            <h3>🤖 AI 助手</h3>
+            <ul>
+              <li>先在「设置」页填写 <b>API Key / 模型</b>（默认直连 DashScope，密钥仅存本机；也可选填自建后端代理地址）。点击「测试连接」可一键验证 Key 是否有效。</li>
+              <li><b>生成学习计划</b>：输入目标（如「两周掌握微积分」），AI 拆成 3–5 个任务，确认后一键存入「任务」。</li>
+              <li><b>解析文献</b>：粘贴文本或上传 PDF / 文本文件，AI 输出<b>内容摘要、关键概念、学习建议、难点分析</b>；得到结果后可继续追问深化。</li>
+              <li><b>翻译</b>：输入文本并选择目标语言即可翻译；支持多轮追问，如“改成更正式的表达”“保留专业术语”。</li>
+              <li><b>🔍 信息聚合搜索</b>：只需输入一个简单问题，系统会基于 <b>BROKE 框架</b>自动补全背景、赋予专业角色、明确目标与输出标准（增强提示词可展开查看），再聚合相关信息作答；答复后可追加指令动态优化（Evolve）。</li>
+              <li><b>导出为 HTML</b>：翻译、解析文献、信息聚合搜索均支持将当前完整对话记录导出为 HTML 文件，便于归档、分享与离线阅读。</li>
+              <li>调用时显示加载态；报错会提示「API Key 无效」「网络超时」等友好信息。</li>
+            </ul>
+          </div>
+
+          <p class="manual-tip">💡 小提示：复盘在你当天首次登入网址时弹出（需网页处于打开 / 登录状态），同一天重复进入不会重复弹。</p>
+        </div>
+      </section>
+
+      <!-- ===== 页面四：设置 ===== -->
+      <section class="page" id="page-settings">
+        <div class="card glass">
+          <h2>⚙️ 系统设置</h2>
+
+          <div class="setting-row">
+            <div>
+              <div>学习提醒</div>
+              <div class="desc">到设定时间后弹窗提醒开始学习（P2）</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="time" id="reminder-time" />
+              <label><input type="checkbox" id="reminder-on" style="width:auto" /> 启用</label>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <div>🌗 深色模式</div>
+              <div class="desc">开启后整个界面切换为深色，护眼省电；开关状态自动保存。</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dark-mode-toggle" style="width:18px;height:18px;accent-color:var(--accent)" />
+              <span class="desc">开启深色</span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <div>数据导出 / 备份（P1）</div>
+              <div class="desc">一键导出全部历史数据为 Excel 或完整备份</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-primary" id="export-json-btn">导出备份</button>
+              <button class="btn-ghost" id="import-json-btn">导入备份</button>
+              <input type="file" id="import-file" accept="application/json" hidden />
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <div>当前账号</div>
+              <div class="desc" id="settings-user"></div>
+            </div>
+            <button class="btn-danger" id="clear-data-btn">清空我的数据</button>
+          </div>
+
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <div>
+              <div>🔧 同步诊断（排查跨设备不同步）</div>
+              <div class="desc">点击后对云端连接、登录态、读取、写入、实时订阅做一次自检，并给出明确结论与报错；若读写报错多为「row-level security / policy / relation does not exist」，请在 Supabase 后台 SQL Editor 重新执行最新的 supabase-schema.sql。</div>
+            </div>
+            <button class="btn-primary" id="sync-diag-btn">运行同步诊断</button>
+            <pre id="sync-diag-result" class="diag-pre" hidden></pre>
+          </div>
+
+          <!-- ===== AI 助手配置区（默认直连 DashScope，可选经 Flask 后端代理） ===== -->
+          <div class="setting-row ai-config-row">
+            <div>
+              <div>🤖 AI 助手配置</div>
+              <div class="desc">配置后可在「AI 助手」页生成学习计划、解析文献、翻译。默认前端<b>直连 DashScope</b>（已验证支持浏览器，密钥仅存本机，个人单机用安全）；只有当你自己部署了 Flask 后端代理时才需要填下面的「后端代理地址」。</div>
+            </div>
+          </div>
+          <div class="ai-config-fields">
+            <label>后端代理地址（可选，留空则直连 DashScope）
+              <input type="text" id="ai-api-url" placeholder="可选：https://your-app.onrender.com" />
+            </label>
+            <label>API Key（DashScope / 阿里云百炼，sk-...）
+              <input type="password" id="ai-api-key" placeholder="sk-..." autocomplete="off" />
+            </label>
+            <label>模型名称
+              <input type="text" id="ai-model" placeholder="qwen3.8-max" />
+            </label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button class="btn-primary" id="ai-save-btn">保存配置</button>
+              <button class="btn-secondary" id="ai-test-btn">测试连接</button>
+              <span id="ai-test-status" class="desc" style="font-size:12px"></span>
+            </div>
+          </div>
+
+          <p class="desc" style="margin-top:14px;font-size:12px;color:var(--text-soft)">
+            说明：配置 Supabase 后，数据保存在云端并按用户隔离，电脑与手机登录同一账号即可实时共享；未配置或断网时自动降级为本地模式（数据仅存本机）。历史记录按每页 50 条在前端分页展示，可支撑较大规模数据（如需处理百万级以上记录，建议进一步改为服务端分页聚合）。
+          </p>
+        </div>
+      </section>
+
+      <!-- ===== 页面：AI 助手（生成学习计划 / 解析文献 / 翻译） ===== -->
+      <section class="page" id="page-ai">
+        <div class="card glass">
+          <h2>🤖 AI 助手</h2>
+          <p class="manual-intro">默认直连 DashScope（阿里云百炼）调用 AI（默认 qwen3.8-max，可在「设置 → AI 助手配置」换成 deepseek-v4-pro 等任意可用模型）。密钥仅存本机，个人单机使用安全；如需走自建后端代理也可在设置里填「后端代理地址」。</p>
+
+          <!-- 1. 生成学习计划 -->
+          <div class="ai-block">
+            <h3>📅 生成学习计划</h3>
+            <p class="desc">输入一个学习目标（如「两周内掌握微积分基础」），AI 会拆成 3–5 个具体任务：每条任务的标题作为任务名称，其余说明作为任务备注，确认后一键存入「任务」。</p>
+            <textarea id="ai-goal-input" class="ai-textarea" placeholder="例如：两周内掌握微积分基础，每天 1 小时"></textarea>
+            <div class="ai-actions">
+              <button class="btn-primary" id="ai-gen-plan-btn">生成计划</button>
+              <span id="ai-gen-plan-loading" class="loading" hidden><span class="spinner"></span>生成中…</span>
+            </div>
+            <div id="ai-plan-result" class="ai-result" hidden></div>
+          </div>
+
+          <!-- 2. 解析文献 -->
+          <div class="ai-block">
+            <h3>📄 解析文献</h3>
+            <p class="desc">粘贴文本，或上传 PDF / txt 文件，AI 生成：内容摘要、关键概念、学习建议、难点分析。</p>
+            <textarea id="ai-doc-input" class="ai-textarea" placeholder="把文献正文粘贴到这里，或点击下方上传 PDF / 文本文件…"></textarea>
+            <div class="ai-actions">
+              <input type="file" id="ai-doc-file" accept=".pdf,.txt,.md" />
+              <button class="btn-primary" id="ai-parse-btn">解析文献</button>
+              <span id="ai-parse-loading" class="loading" hidden><span class="spinner"></span>解析中…</span>
+            </div>
+            <div id="ai-doc-result" class="ai-result" hidden></div>
+            <div class="ai-followup-row" id="ai-doc-followup-row" hidden>
+              <input type="text" id="ai-doc-followup" placeholder="追问，如：再详细解释关键概念、给出例子、补充应用场景…" />
+              <button class="btn-primary" id="ai-doc-evolve-btn">发送</button>
+            </div>
+            <div class="ai-export-row" id="ai-doc-export-row" hidden>
+              <button class="btn-ghost" id="ai-doc-export-btn">📄 导出为 HTML</button>
+            </div>
+          </div>
+
+          <!-- 3. 翻译（自主附加功能） -->
+          <div class="ai-block">
+            <h3>🌐 翻译</h3>
+            <p class="desc">把一段文字翻译为目标语言。</p>
+            <textarea id="ai-trans-input" class="ai-textarea" placeholder="待翻译的文本…"></textarea>
+            <div class="ai-actions">
+              <select id="ai-trans-lang">
+                <option value="英语">英语</option>
+                <option value="中文">中文</option>
+                <option value="日语">日语</option>
+                <option value="法语">法语</option>
+                <option value="德语">德语</option>
+              </select>
+              <button class="btn-primary" id="ai-trans-btn">翻译</button>
+              <span id="ai-trans-loading" class="loading" hidden><span class="spinner"></span>翻译中…</span>
+            </div>
+            <div id="ai-trans-result" class="ai-result" hidden></div>
+            <div class="ai-followup-row" id="ai-trans-followup-row" hidden>
+              <input type="text" id="ai-trans-followup" placeholder="追问，如：改成更正式的表达、润色得更自然、保留专业术语…" />
+              <button class="btn-primary" id="ai-trans-evolve-btn">发送</button>
+            </div>
+            <div class="ai-export-row" id="ai-trans-export-row" hidden>
+              <button class="btn-ghost" id="ai-trans-export-btn">📄 导出为 HTML</button>
+            </div>
+          </div>
+
+          <!-- 4. 信息聚合搜索（BROKE 框架，交互极简） -->
+          <div class="ai-block">
+            <h3>🔍 信息聚合搜索</h3>
+            <p class="desc">只需输入一个简单问题，系统会基于 BROKE 框架<strong>自动补全背景、赋予专业角色、明确目标与输出标准</strong>，再聚合相关信息作答；得到答复后还能追加指令动态优化（Evolve）。增强提示词与作答均由 AI 助手内部完成，你无需关心细节。</p>
+            <textarea id="agg-question" class="ai-textarea" placeholder="例如：帮我理清量子计算目前产业化进展到哪一步了"></textarea>
+            <div class="ai-actions">
+              <button class="btn-primary" id="agg-search-btn">聚合搜索</button>
+              <span id="agg-loading" class="loading" hidden><span class="spinner"></span>搜索中…</span>
+            </div>
+            <div id="agg-result" class="ai-result" hidden></div>
+            <div class="ai-followup-row" id="agg-followup-row" hidden>
+              <input type="text" id="agg-followup" placeholder="追问 / 调整指令（Evolve），如：换成通俗版、补充 2025 年数据、缩短到 200 字" />
+              <button class="btn-primary" id="agg-evolve-btn">发送</button>
+            </div>
+            <div class="ai-export-row" id="agg-export-row" hidden>
+              <button class="btn-ghost" id="agg-export-btn">📄 导出为 HTML</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 页面：倒数日 ===== -->
+      <section class="page" id="page-countdown">
+        <div class="card glass">
+          <h2>⏳ 倒数日</h2>
+          <p class="hint">添加你关心的目标日期；过期条目会自动置底并置灰显示。</p>
+          <div class="cd-add-row">
+            <input type="text" id="cd-name" placeholder="名称（如：期末考试）" />
+            <input type="date" id="cd-target" />
+            <button class="btn-primary" id="cd-add-btn">添加</button>
+          </div>
+          <div id="cd-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== 每日复盘弹窗（柔和风） ===== -->
+  <div id="review-modal" class="modal-overlay" hidden>
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <span class="modal-emoji">🌅</span>
+        <div>
+          <div class="modal-title">昨日时间复盘</div>
+          <div class="modal-sub" id="review-date"></div>
+        </div>
+      </div>
+      <div id="review-body"></div>
+      <div class="modal-actions">
+        <button class="btn-primary" id="review-close">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 清单右键菜单 ===== -->
+  <div id="ctx-menu" class="ctx-menu" hidden>
+    <button data-act="timer">▶ 开始计时</button>
+    <button data-act="done">✓ 标记完成</button>
+    <button data-act="del" class="ctx-danger">🗑 删除</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+  /* =====================================================================
+     Time Recorder —— 单文件实现（Supabase 云同步版）
+     · 数据层：Supabase Postgres 为主，localStorage 作离线缓存/秒开兜底
+     · 登录：Supabase Auth（用户名映射为邮箱，密码由 Supabase 加密）
+     · 实时：Supabase Realtime，两端改动秒级互相同步
+     · 业务规则（分钟精度 / 10 小时上限 / 跨天记开始当天 / 直接删除）保持不变
+     · 数据容量：支持 1000 万条记录（云端 Postgres 存储；历史列表服务端分页、统计服务端聚合，避免一次性拉取全部）
+     ===================================================================== */
+
+  /* ---------- 1. Supabase 配置（改为你自己的值，见 SETUP.md） ---------- */
+  const SUPABASE_URL = 'https://nfkumakrgourqevdlrjr.supabase.co'; // ← Project URL（不含 /rest/v1/）
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ma3VtYWtyZ291cnFldmRscmpyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyNTkzMTgsImV4cCI6MjEwMTgzNTMxOH0.v96s0TUcKXmC5xlJL2gAnriIIcmrSiqb3B-a0ysVy1Q'; // ← anon public 密钥
+
+  let USE_CLOUD = !SUPABASE_URL.includes('YOUR_PROJECT') && typeof window.supabase !== 'undefined';
+  let sb = USE_CLOUD ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+  // 令牌刷新 / 登录成功后，把最新 refresh_token 续期持久化到 OS 凭据库；登出时清除。
+  let _authRenewalAttached = false;
+  function attachAuthRenewal() {
+    if (_authRenewalAttached || !sb || !sb.auth) return;
+    _authRenewalAttached = true;
+    sb.auth.onAuthStateChange((event, session) => {
+      if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) persistSessionToOS();
+      if (event === 'SIGNED_OUT') osClearSession();
+    });
+  }
+  attachAuthRenewal();
+
+  // CDN 兜底脚本加载完成后，若此前因 supabase 库未就绪而未启用云端，则重新初始化
+  window.__trInitSupabase = function () {
+    if (sb || !window.supabase) return;
+    USE_CLOUD = true;
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    attachAuthRenewal();
+    try { if (currentUserId) setSyncStatus(); } catch (e) {}
+  };
+
+  let currentUser = null;   // 显示用用户名
+  let currentUserId = null; // Supabase user.id 或离线 'local:xxx'
+
+  /* ---------- 2. 通用工具 ---------- */
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+  // 统一的 DOM 元素获取与 innerHTML 赋值封装（空值安全）。
+  // 目标：任何 innerHTML 写入都先校验目标元素是否存在；
+  // 若为 null 则安全跳过并输出明确警告，避免 "Cannot set properties of null" 中断脚本。
+  function getEl(sel) {
+    if (typeof sel === 'string') return document.querySelector(sel); // 可能返回 null
+    return sel;                                                       // 已是元素则原样返回
+  }
+  function setHTML(sel, html) {
+    const node = getEl(sel);
+    if (!node) {
+      const label = (typeof sel === 'string') ? sel
+        : (sel && sel.id ? '#' + sel.id : (sel || 'null'));
+      console.warn('[setHTML] 目标元素不存在，已安全跳过 innerHTML 写入：', label);
+      return null;
+    }
+    node.innerHTML = html;
+    return node;
+  }
+
+  function load(key, def) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
+    catch (e) { return def; }
+  }
+  function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+  // 应用深浅色主题：theme = 'dark' | 'light'；同步 Chart.js 文字/网格配色
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === 'dark') root.setAttribute('data-theme', 'dark');
+    else root.removeAttribute('data-theme');
+    if (window.Chart) {
+      const cs = getComputedStyle(root);
+      Chart.defaults.color = cs.getPropertyValue('--text-soft').trim() || '#6b7280';
+      Chart.defaults.borderColor = cs.getPropertyValue('--border').trim() || 'rgba(255,255,255,.2)';
+      // 刷新已存在的图表实例以套用新配色
+      Object.values(trCharts || {}).forEach((c) => { try { c && c.update(); } catch (_) {} });
+    }
+  }
+
+  const LS = {
+    accounts: 'tr_accounts',   // 离线模式账号（明文，仅本地）
+    settings: 'tr_settings'    // {reminderOn, reminderTime}
+  };
+  const CACHE = {
+    tasks: 'tr_tasks_cache',
+    records: 'tr_records_cache',
+    plans: 'tr_plans_cache',
+    user: 'tr_user_cache'
+  };
+
+  function todayStr(d = new Date()) {
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  // 判断是否为合法 UUID（云端主键/外键均为 uuid 类型；本地兜底用 uid() 生成的非 UUID 短串不能直接写入 uuid 列）
+  function isUuid(s) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || ''); }
+  // 生成合法 UUID（用于本地新建项在上云前替换非 UUID 的 uid() 短串；优先用浏览器原生 crypto.randomUUID）
+  function newUuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function fmtDuration(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
+  }
+  function fmtMinutes(sec) { return Math.round(sec / 60); }
+  // 精度到秒的中文时长：X时Y分Z秒 / X分Y秒 / X秒
+  function fmtSpan(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h > 0) return `${h}时${m}分${s}秒`;
+    if (m > 0) return `${m}分${s}秒`;
+    return `${s}秒`;
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // 浏览器通知（需用户授权；未授权时尝试请求权限）
+  function notifyBrowser(title, body) {
+    // 鸿蒙端：通过原生桥接发布系统级通知（WebView 不支持浏览器 Notification API）
+    if (window.harmonyBridge && typeof window.harmonyBridge.showSystemNotification === 'function') {
+      try { window.harmonyBridge.showSystemNotification(title, body); } catch (e) {}
+    }
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then((p) => { if (p === 'granted') new Notification(title, { body }); });
+    }
+  }
+
+  /* ---------- 3. 数据访问层（api） ---------- */
+  function getCachedTasks() { return load(CACHE.tasks, []); }
+  function getCachedRecords() { return load(CACHE.records, []); }
+
+  async function loadTasks() {
+    const local = getCachedTasks().map(t => ({ ...t, done: !!t.done, note: t.note || '' }));
+    if (USE_CLOUD && currentUserId) {
+      try {
+        const { data, error } = await sb.from('tasks').select('*').order('created_at');
+        if (!error && data) {
+          const cloud = data.map(r => ({
+            id: r.id, name: r.name, tag: r.tag, done: !!r.done, note: r.note || ''
+          }));
+          // 合并（冲突解决）：① 本地 _dirty（待上传的最新改动）优先，不被云端旧值覆盖；
+          // ② 否则以云端为准（删除/取消完成都能同步）。本地非 dirty 且云端缺失的项视为已在其他设备删除。
+          const merged = cloud.map(c => {
+            const l = local.find(x => x.id === c.id);
+            if (l && l._dirty) return l;
+            return c;
+          });
+          const cloudIds = new Set(cloud.map(c => c.id));
+          local.forEach(l => { if (!cloudIds.has(l.id) && l._dirty) merged.push(l); });
+          save(CACHE.tasks, merged); return merged;
+        }
+      } catch (e) { /* 云端异常时回退本地 */ }
+    }
+    return local;
+  }
+
+  async function saveTask(task) {
+    // 确保字段结构完整（向后兼容；子任务已废弃，统一用 note 备注）
+    task.done = !!task.done;
+    task.note = task.note || '';
+    const oldId = task.id;   // 记住旧 id：本地非 UUID id 可能在上云后被云端 UUID 覆盖，本地缓存需按旧 id 定位去重
+    if (USE_CLOUD && currentUserId) {
+      const base = { name: task.name, tag: task.tag, done: task.done };
+      // 写入云端：优先带 note；若 tasks 表缺 note 列（旧库未补列）则自动降级为不带 note 重试，保证任务一定能上云。
+      // 本地非 UUID id（此前从未成功上云）一律按「新行插入」处理并取回云端 UUID，避免拿非 UUID 去 UPDATE 触发类型错误。
+      const tryWrite = async (withNote) => {
+        const payload = withNote ? { ...base, note: task.note } : base;
+        if (task.id && isUuid(task.id)) {
+          const r = await sb.from('tasks').update(payload).eq('id', task.id);
+          return { error: r.error, data: null };
+        }
+        const r = await sb.from('tasks').insert({ user_id: currentUserId, ...payload }).select().single();
+        return { error: r.error, data: r.data };
+      };
+      task._dirty = true;   // 标记本地改动待上传；云端写成功后清除（冲突解决：本地最新意图优先）
+      try {
+        let res = await tryWrite(true);
+        if (res.error && /42703|does not exist/i.test(res.error.message || JSON.stringify(res.error))) {
+          res = await tryWrite(false);   // 缺列（note）→ 去掉 note 降级重试
+        }
+        // 注意：UPDATE 成功时 res.data 为 null，须按 !res.error 判定成功
+        if (res.error) { lastCloudError = res.error; console.warn('[tasks] 云端保存失败：', res.error.message || res.error); }
+        else { delete task._dirty; lastCloudError = null; if (res.data && res.data.id) task.id = res.data.id; }
+      } catch (e) { /* 云端异常时保留 _dirty，待 SyncEngine 重试上传 */ }
+    }
+    const all = getCachedTasks();
+    let i = task.id ? all.findIndex(t => t.id === task.id) : -1;
+    if (i < 0 && oldId) i = all.findIndex(t => t.id === oldId);   // id 被云端 UUID 覆盖时按旧 id 定位，避免重复入列
+    if (i >= 0) all[i] = task; else { task.id = task.id || uid(); all.push(task); }
+    save(CACHE.tasks, all);
+    return task;
+  }
+
+  // 把云端 records 行映射为内部记录对象
+  function mapRecords(data) {
+    return (data || []).map(r => ({
+      id: r.id, taskId: r.task_id, taskName: r.task_name, tag: r.tag,
+      subtask: r.subtask, durationSec: r.duration_sec, date: r.record_date,
+      startTs: new Date(r.start_ts).getTime(), endTs: new Date(r.end_ts).getTime()
+    }));
+  }
+
+  // 云端拉取（带指数退避重试）：网络抖动 / 瞬时超时也能恢复；最终失败返回 null 触发本地降级
+  async function fetchRecordsCloud(retries = 3) {
+    if (!USE_CLOUD || !currentUserId) return null;
+    let lastErr = null;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const { data, error } = await sb.from('records').select('*').order('start_ts');
+        if (!error && data) return data;
+        lastErr = error;
+      } catch (e) { lastErr = e; }
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 400 * (i + 1)));
+    }
+    console.warn('[records] 云端拉取失败（已重试 ' + retries + ' 次）：', lastErr && lastErr.message);
+    lastCloudError = lastErr;   // 记录真实错误，供状态条 / 诊断展示
+    return null;
+  }
+
+  // 把云端数据合并本地缓存并落盘（双向同步核心）。
+  // 合并规则：
+  //   ① 云端记录始终以云端为准（覆盖本地同 id 记录，保证"新增/修改"同步）；
+  //   ② 本地存在、云端不存在的记录分两类：
+  //        - 标记 _dirty 的：是本机"云端写入失败、尚未同步"的待补传记录 → 保留并尝试重试上传（不可丢）；
+  //        - 未标记 _dirty 的：说明已被其他设备删除（云端已无此行）→ 必须从本地移除，完成"删除同步"。
+  async function mergeRecordsToCache(cloudData) {
+    const mapped = mapRecords(cloudData);          // ① 云端为准
+    const cloudIds = new Set(mapped.map(r => r.id));
+    const local = getCachedRecords();
+    const pending = local.filter(r => !cloudIds.has(r.id) && r._dirty);  // ② 待补传
+    // 尝试把待补传记录重新推送到云端（best-effort），成功后改用云端 id 并清除 _dirty
+    if (USE_CLOUD && currentUserId) {
+      for (const p of pending) {
+        try {
+        const { data, error } = await sb.from('records').insert({
+          user_id: currentUserId, task_id: isUuid(p.taskId) ? p.taskId : null, task_name: p.taskName,
+          tag: p.tag, subtask: p.subtask || '', duration_sec: p.durationSec,
+          record_date: p.date, start_ts: new Date(p.startTs).toISOString(), end_ts: new Date(p.endTs).toISOString()
+        }).select().single();
+          if (!error && data) { p.id = data.id; delete p._dirty; lastCloudError = null; }
+        } catch (e) { /* 仍失败，保留 _dirty 下次拉取时再试 */ }
+      }
+    }
+    // 未标记 _dirty 且云端缺失的本地记录（被其他设备删除）已自然丢弃，从而实现删除同步
+    const merged = mapped.concat(pending);
+    save(CACHE.records, merged);
+    return merged;
+  }
+
+  async function loadRecords() {
+    const data = await fetchRecordsCloud(3);
+    if (data) {
+      const merged = await mergeRecordsToCache(data);
+      lastCloudError = null;       // 读取成功，清除历史错误标记
+      setDataSyncState(true, Date.now());
+      scheduleSyncRetry(false);   // 已同步成功，停止后台重试
+      return merged;
+    }
+    // 云端不可用 → 降级为本地缓存，并启动后台重试，待网络恢复自动重新拉取
+    setDataSyncState(false);
+    scheduleSyncRetry(true);
+    return getCachedRecords();
+  }
+
+  // 写入一条计时记录：云端尝试同步（失败不阻塞），本地始终作为可靠存储落盘；返回保存后的记录。
+  // 仅在「本地也写不进去」时才抛错，并给出明确提示。
+  async function addRecord(rec) {
+    // 1) 必要字段校验
+    if (!rec || rec.durationSec == null || !rec.taskName) {
+      throw new Error('计时记录不完整（缺少时长或任务名），无法保存');
+    }
+    let savedId = null;
+    // 2) 云端同步（异常安全：任何失败都只告警，不影响本地保存）
+    if (USE_CLOUD && currentUserId) {
+      try {
+        const { data, error } = await sb.from('records').insert({
+          user_id: currentUserId, task_id: isUuid(rec.taskId) ? rec.taskId : null, task_name: rec.taskName,
+          tag: rec.tag, subtask: rec.subtask || '', duration_sec: rec.durationSec,
+          record_date: rec.date, start_ts: new Date(rec.startTs).toISOString(), end_ts: new Date(rec.endTs).toISOString()
+        }).select().single();
+        if (!error && data) { savedId = data.id; lastCloudError = null; }
+        else if (error) {
+          lastCloudError = error;
+          console.warn('[records] 云端保存失败：', (error && error.message) || error);
+          toastCloudError((error && error.message) || '未知错误');
+        }
+      } catch (e) {
+        lastCloudError = e;
+        console.warn('[records] 云端保存异常：', e && e.message);
+        toastCloudError(e && e.message || '网络异常');
+      }
+    }
+    // 3) 本地始终写入（保证历史界面一定能展示）
+    const all = getCachedRecords();
+    const item = Object.assign({ id: savedId || uid() }, rec);
+    // 云端写入失败时标记 _dirty：该记录尚未同步到云端，合并逻辑必须保留它，
+    // 绝不能因为"云端没有"就当作"被其他设备删除"而清除。
+    if (!savedId) item._dirty = true;
+    all.push(item);
+    try {
+      save(CACHE.records, all);
+    } catch (e) {
+      throw new Error('本地存储写入失败（可能存储空间已满或被禁用）：' + (e && e.message || e));
+    }
+    return item;
+  }
+
+  async function deleteRecord(id) {
+    if (USE_CLOUD && currentUserId) await sb.from('records').delete().eq('id', id);
+    save(CACHE.records, getCachedRecords().filter(r => r.id !== id));
+  }
+
+  /* ---------- 3b. 清单 / 每日计划（支持云同步） ---------- */
+  function getCachedPlans() { return load(CACHE.plans, []); }
+
+  async function loadPlans() {
+    const local = getCachedPlans().map(p => ({ ...p, done: !!p.done }));
+    if (USE_CLOUD && currentUserId) {
+      try {
+        const { data, error } = await sb.from('plans').select('*').eq('user_id', currentUserId);
+        if (!error && data) {
+          const cloud = data.map(r => ({
+            id: r.id, planDate: r.plan_date, content: r.content || '', tag: r.tag || '',
+            planTime: r.plan_time || '', importance: r.importance || '', done: !!r.done
+          }));
+          const merged = cloud.map(c => {
+            const l = local.find(x => x.id === c.id);
+            if (l && l._dirty) return l;                          // 本地待上传改动（最新意图）优先
+            return c;                                             // 否则以云端为准，删除/取消完成均可同步
+          });
+          const cloudIds = new Set(cloud.map(c => c.id));
+          local.forEach(l => { if (!cloudIds.has(l.id) && l._dirty) merged.push(l); }); // 仅保留本地未上云的脏数据
+          save(CACHE.plans, merged); return merged;
+        }
+      } catch (e) { /* 云端异常时回退本地 */ }
+    }
+    return local;
+  }
+
+  async function savePlan(plan) {
+    const oldPlanId = plan.id;   // 记住旧 id：本地非 UUID id 可能在上云后被云端 UUID 覆盖，本地缓存需按旧 id 定位去重
+    if (USE_CLOUD && currentUserId) {
+      plan._dirty = true;   // 标记本地改动待上传；云端写成功后清除
+      try {
+        const payload = {
+          user_id: currentUserId, plan_date: plan.planDate, content: plan.content || '',
+          tag: plan.tag || '', plan_time: plan.planTime || '', importance: plan.importance || '', done: !!plan.done
+        };
+        let cloudOk = false, newId = null;
+        if (plan.id && isUuid(plan.id)) {
+          const { error } = await sb.from('plans').update(payload).eq('id', plan.id);
+          cloudOk = !error;
+        } else {
+          // 本地非 UUID id（从未上云）→ 新行插入并取回云端 UUID
+          const { data, error } = await sb.from('plans').insert(payload).select().single();
+          if (!error && data) { cloudOk = true; newId = data.id; }
+        }
+        if (cloudOk) { delete plan._dirty; if (newId) plan.id = newId; lastCloudError = null; }
+      } catch (e) { /* 云端异常时保留 _dirty，待 SyncEngine 重试上传 */ }
+    }
+    const all = getCachedPlans();
+    let i = plan.id ? all.findIndex(p => p.id === plan.id) : -1;
+    if (i < 0 && oldPlanId) i = all.findIndex(p => p.id === oldPlanId);   // id 被云端 UUID 覆盖时按旧 id 定位，避免重复入列
+    if (i >= 0) all[i] = plan; else { plan.id = plan.id || uid(); all.push(plan); }
+    save(CACHE.plans, all);
+    return plan;
+  }
+
+  async function deletePlan(id) {
+    if (USE_CLOUD && currentUserId) await sb.from('plans').delete().eq('id', id);
+    save(CACHE.plans, getCachedPlans().filter(p => p.id !== id));
+  }
+
+  // 名称归一化：折叠所有空白（含换行/多余空格）并忽略大小写，避免匹配失败
+  function normName(s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+
+  // 取得「今日清单」中所有任务名称（归一化后），用于计时界面过滤
+  async function getTodayPlanNames() {
+    const today = todayStr();
+    const plans = await loadPlans();
+    return new Set(plans.filter((p) => p.planDate === today && p.content).map((p) => normName(p.content)));
+  }
+
+  // 清单(plans) → 计时任务(tasks) 完成状态同步：
+  // 名称用归一化比较（防换行/空格失配）；若 tasks 里没有同名项且已完成，自动补齐，
+  // 保证清单勾选完成后，计时下拉框与统计图表能看到该任务已完成。
+  async function syncTaskDoneByPlanName(name, done) {
+    if (!name) return;
+    const key = normName(name);
+    const tasks = await loadTasks();
+    const matched = tasks.filter((t) => normName(t.name) === key);
+    if (matched.length) {
+      for (const t of matched) { if (t.done !== done) { t.done = done; await saveTask(t); } }
+    } else if (done) {
+      // 清单勾选完成，但计时任务里没有同名项 → 自动补建（这样计时页也能看到已完成）
+      await saveTask({ name: name.trim(), tag: '其他', note: '', done: true });
+    }
+  }
+
+  // 取某一天的时间记录（复盘用）：统一使用 loadRecords（本地缓存 + 云端合并后的同一份数据）
+  async function getDayRecords(dateStr) {
+    return (await loadRecords()).filter(r => r.date === dateStr);
+  }
+
+  /* ---------- 4. 认证（Supabase Auth，用户名映射邮箱） ---------- */
+  function toEmail(username) { return username.includes('@') ? username : username + '@timerecorder.app'; }
+
+  async function signInOrUp(username, password) {
+    if (!USE_CLOUD) {
+      // 离线回退：本地模拟登录
+      const accounts = load(LS.accounts, {});
+      if (accounts[username] && accounts[username] !== password) throw new Error('密码错误');
+      if (!accounts[username]) { accounts[username] = password; save(LS.accounts, accounts); }
+      currentUser = username; currentUserId = 'local:' + username; save(CACHE.user, username);
+      return;
+    }
+    const email = toEmail(username);
+    let { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      // 账号不存在 → 注册（需已在后台关闭"邮件确认"）
+      const signup = await sb.auth.signUp({ email, password });
+      if (signup.error) throw new Error(signup.error.message || '注册失败');
+      if (!signup.data.session) {
+        const login2 = await sb.auth.signInWithPassword({ email, password });
+        if (login2.error) throw new Error(login2.error.message || '登录失败，请确认已关闭邮件确认');
+      }
+    }
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('登录失败');
+    currentUser = username; currentUserId = user.id; save(CACHE.user, username);
+  }
+
+  async function initAuth() {
+    if (!USE_CLOUD) {
+      const u = load(CACHE.user, '');
+      if (u) { currentUser = u; currentUserId = 'local:' + u; return true; }
+      return false;
+    }
+    // 优先从 OS 凭据库恢复（OS 加密、绑定当前 Windows 用户）；并校验设备信任有效期
+    try {
+      const stored = await osGetSession();
+      if (stored) {
+        const s = JSON.parse(stored);
+        const TRUST_MS = 30 * 24 * 3600 * 1000; // 设备信任有效期 30 天
+        if (s.savedAt && (Date.now() - s.savedAt) > TRUST_MS) {
+          await osClearSession();                       // 超期 → 视作失效，清除并要求重新认证
+        } else if (s.access_token && s.refresh_token) {
+          const { error } = await sb.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token });
+          if (!error) {
+            const { data: { session } } = await sb.auth.getSession();
+            if (session && session.user) {
+              currentUser = load(CACHE.user, '');
+              currentUserId = session.user.id;
+              return true;                               // 校验通过 → 直接进入已登录态
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    // 兜底：依赖 Supabase 自带 localStorage 持久化
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.user) {
+      currentUser = load(CACHE.user, '');
+      currentUserId = session.user.id;
+      return true;
+    }
+    return false;
+  }
+
+  async function logout() {
+    SyncEngine.stop();           // 停止统一云同步引擎（取消实时订阅 / 轮询 / 重试）
+    if (USE_CLOUD) { try { await sb.auth.signOut(); } catch (e) {} }
+    await osClearSession();      // 清除 OS 凭据库中的本地凭据
+    currentUser = null; currentUserId = null;
+    localStorage.removeItem(CACHE.user);
+  }
+
+  /* ---------- 4b. 本地安全凭据（Windows 凭据库，经由 pywebview 桥） ---------- */
+  // 仅当运行在桌面封装（window.pywebview.api 存在）时启用；网页/移动端自动降级为 Supabase 自带持久化。
+  async function osGetSession() {
+    try {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.getStoredSession) {
+        return await window.pywebview.api.getStoredSession();
+      }
+    } catch (e) {}
+    return null;
+  }
+  async function osSaveSession(jsonStr) {
+    try {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.saveSession) {
+        await window.pywebview.api.saveSession(jsonStr);
+      }
+    } catch (e) {}
+  }
+  async function osClearSession() {
+    try {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.clearSession) {
+        await window.pywebview.api.clearSession();
+      }
+    } catch (e) {}
+  }
+
+  // 把当前 Supabase 会话安全写入 OS 凭据库（含 token + 设备信任落库时间）
+  async function persistSessionToOS() {
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session && session.access_token && session.refresh_token) {
+        const blob = {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          expires_at: session.expires_at || null,
+          user_id: session.user ? session.user.id : null,
+          savedAt: Date.now()
+        };
+        await osSaveSession(JSON.stringify(blob));
+      }
+    } catch (e) {}
+  }
+
+  // 展示登录界面（用于退出登录 / 锁屏强制重认证），可选提示文案
+  function showLoginView(msg) {
+    $('#login-pass').value = '';
+    $('#app-view').hidden = true;
+    $('#login-view').hidden = false;
+    const m = $('#login-msg');
+    if (m) { m.textContent = msg || ''; m.className = msg ? 'msg-info' : ''; }
+  }
+  // 由桌面封装在检测到系统锁屏时调用 → 强制重新认证
+  window.__trForceReauth = async function () {
+    try { await logout(); } catch (e) {}
+    showLoginView('🔒 设备已锁屏，出于安全请重新登录');
+  };
+
+  function setSyncStatus() {
+    const el = $('#sync-status');
+    if (USE_CLOUD) { el.textContent = '☁ 云端同步'; el.className = 'sync-pill sync-on'; }
+    else { el.textContent = '本地模式'; el.className = 'sync-pill sync-off'; }
+  }
+
+  /* ---------- 5b. 数据同步状态机（统计跨设备同步 / 网络降级） ---------- */
+  let cloudSyncOK = !USE_CLOUD;   // 最近一次云端数据请求是否成功（false=离线降级）
+  let lastSyncTs = null;          // 最近一次成功从云端拉取数据的时间（毫秒）
+  let lastCloudError = null;      // 最近一次云端请求的真实错误（用于诊断展示）
+  let syncRetryTimer = null;      // 离线后台重试定时器
+  let lastCloudErrToast = 0;      // 云端错误 toast 节流时间戳
+
+  // 节流提示：云端写入失败时告知用户（10s 内不重复弹），避免批量导入时刷屏
+  function toastCloudError(msg) {
+    const now = Date.now();
+    if (now - lastCloudErrToast < 10000) return;
+    lastCloudErrToast = now;
+    toast('⚠️ 云端保存失败：' + msg + '（已存本地，暂不同步到其他设备）');
+  }
+
+  function agoLabel(ts) {
+    if (!ts) return '';
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return '刚刚';
+    if (s < 3600) return Math.floor(s / 60) + '分钟前';
+    if (s < 86400) return Math.floor(s / 3600) + '小时前';
+    return Math.floor(s / 86400) + '天前';
+  }
+
+  // 更新统计页「数据同步状态」胶囊：云端已同步 / 离线·本地缓存 / 未启用云端
+  function setDataSyncState(ok, ts) {
+    if (ok !== undefined) cloudSyncOK = ok;
+    if (ts) lastSyncTs = ts;
+    const el = $('#data-sync-state');
+    if (!el) return;
+    if (!USE_CLOUD) { el.textContent = '📦 本地模式（未启用云端）'; el.className = 'sync-pill sync-off'; el.title = ''; return; }
+    if (cloudSyncOK) {
+      el.textContent = '✅ 云端已同步' + (lastSyncTs ? '·' + agoLabel(lastSyncTs) : '');
+      el.className = 'sync-pill sync-on';
+      el.title = '数据已与云端一致，跨设备实时同步';
+    } else {
+      el.textContent = lastCloudError ? '⚠️ 云端异常' : '⚠️ 离线·本地缓存';
+      el.className = 'sync-pill sync-warn';
+      el.title = lastCloudError
+        ? ('云端错误：' + (lastCloudError.message || lastCloudError) + '\n数据仅存本机，不会同步到其他设备。建议运行「同步诊断」。')
+        : '网络不可用，正在后台重试；当前显示本地缓存';
+    }
+  }
+
+  // 后台定时重试：云端不可用时每 20s 重新拉取，恢复后自动停止并刷新当前界面
+  function scheduleSyncRetry(enable) {
+    if (syncRetryTimer) { clearInterval(syncRetryTimer); syncRetryTimer = null; }
+    if (!enable || !USE_CLOUD || !currentUserId) return;
+    syncRetryTimer = setInterval(async () => {
+      const data = await fetchRecordsCloud(2);
+      if (data) {
+        await mergeRecordsToCache(data);
+        setDataSyncState(true, Date.now());
+        scheduleSyncRetry(false);
+        if (currentPage() === 'stats') renderStats();
+        if (currentPage() === 'history') renderHistory();
+      }
+    }, 20000);
+  }
+
+  /* ==================== SyncEngine：统一跨设备云同步引擎 ====================
+     把原先分散的「轮询 + 实时订阅 + 拉取刷新」收敛为一个内聚引擎，逐项对应需求：
+       ① 与远端建立安全连接并身份认证  → ensureConnection()：校验 Supabase 会话有效并固化 currentUserId
+       ② 本地数据序列化与上传          → push()：uploadDirtyXxx 把本地 _dirty(待上传) 项序列化并写入云端
+       ③ 从云端拉取并合并远程变更      → pull()：复用各集合 load/fetch + merge 拉取远端并合并进本地缓存
+       ④ 冲突检测与解决                → mergeConflict()：
+             · 本地 _dirty 项 = 本端未上云的最新改动 → 优先保留并上传（本地最新意图优先）；
+             · 其余以云端为准；任务/清单的 done 采用「或合并」(true 优先) 避免丢失完成态；
+             · 倒数日按 updated_at 由云端为准，未上云的本地新增保留待传。
+       ⑤ 断网重连与失败重试            → online/offline 监听 + 指数退避重试 + 实时订阅重连后补拉
+       ⑥ 同步状态可视化                → setDataSyncState() 胶囊 + onStatus 订阅
+     数据模型兼容：tasks/plans/records/countdown 四张表现有结构与字段不变；
+     集合在 collections 中声明（拉取/上传/刷新键），引擎统一调度。 */
+
+  function sigOf(arr, pick) { return (arr || []).map(pick).join('|'); }
+
+  // 上传本地待同步的任务（_dirty）。复用 saveTask（内置 note 缺列降级 + 非 UUID 转新行取回云端 UUID），成功会自动清 _dirty
+  async function uploadDirtyTasks() {
+    if (!USE_CLOUD || !currentUserId) return;
+    const all = getCachedTasks();
+    let changed = false;
+    for (const t of all) { if (t._dirty) { await saveTask(t); if (!t._dirty) changed = true; } }
+    if (changed) save(CACHE.tasks, all);
+  }
+  // 上传本地待同步的清单（_dirty）。复用 savePlan，成功自动清 _dirty
+  async function uploadDirtyPlans() {
+    if (!USE_CLOUD || !currentUserId) return;
+    const all = getCachedPlans();
+    let changed = false;
+    for (const p of all) { if (p._dirty) { await savePlan(p); if (!p._dirty) changed = true; } }
+    if (changed) save(CACHE.plans, all);
+  }
+  // 上传本地待同步的倒数日（_dirty）。复用 saveCountdownToCloud，成功自动清 _dirty
+  async function uploadDirtyCountdowns() {
+    if (!USE_CLOUD || !currentUserId) return;
+    const list = loadCountdownsLocal();
+    let changed = false;
+    for (const c of list) { if (c._dirty) { if (await saveCountdownToCloud(c)) changed = true; } }
+    if (changed) saveCountdownsLocal(list);
+  }
+  // 拉取倒数日：取云端并合并（保留本地未上云新增），返回本地最新
+  async function pullCountdowns() {
+    const cloud = await fetchCountdownsFromCloud();
+    if (cloud) mergeCountdowns(cloud);
+    return loadCountdownsLocal();
+  }
+
+  const SyncEngine = (() => {
+    const POLL_MS = 8000;                    // 周期兜底轮询（实时推送漏收时的最终一致保障）
+    const RETRY_MIN = 5000, RETRY_MAX = 60000; // 失败重试指数退避：5s → 封顶 60s
+    let pollTimer = null, retryTimer = null, channel = null, rtDebounce = null;
+    let retryDelay = RETRY_MIN, syncing = false, started = false, lastSyncAt = null;
+    const listeners = [];
+
+    function emit() { const ok = typeof cloudSyncOK !== 'undefined' ? cloudSyncOK : true; listeners.forEach((f) => { try { f({ ok, lastSyncAt }); } catch (e) {} }); }
+    function onStatus(fn) { listeners.push(fn); }
+
+    // ⑥ 顶部全局状态胶囊（所有页面可见）：同步中 / 已同步·时间 / 离线 / 异常；点击可手动同步
+    function setTopPill(text, cls, title) {
+      const el = $('#sync-status'); if (!el) return;
+      el.textContent = text; el.className = 'sync-pill ' + cls; if (title !== undefined) el.title = title;
+    }
+
+    // ① 建立安全连接 + 身份认证：确认云端可用且 Supabase 会话有效，返回并固化 currentUserId
+    async function ensureConnection() {
+      if (!USE_CLOUD || !sb) throw new Error('云端未启用（Supabase 未加载或未配置）');
+      const { data: { session } = {}, error } = await sb.auth.getSession();
+      if (error) throw error;
+      if (!session || !session.user) throw new Error('未登录或会话已过期');
+      currentUserId = session.user.id;
+      return true;
+    }
+
+    // 各数据集合声明：pull=拉取并合并远端变更，push=上传本地 _dirty
+    // （records 的 _dirty 重传已在 mergeRecordsToCache 内部完成，故 push 为空操作）
+    const collections = [
+      { key: 'tasks',     pull: () => loadTasks(),     push: uploadDirtyTasks },
+      { key: 'plans',     pull: () => loadPlans(),     push: uploadDirtyPlans },
+      { key: 'records',   pull: () => loadRecords(),   push: async () => {} },
+      { key: 'countdown', pull: () => pullCountdowns(), push: uploadDirtyCountdowns },
+    ];
+
+    // 当前页数据指纹：仅当同步后数据真的变化才重渲染，避免无故打断用户
+    function currentPageSig() {
+      const p = currentPage();
+      if (p === 'history' || p === 'stats') return sigOf(getCachedRecords(), (r) => r.id + ':' + r.endTs + ':' + r.durationSec);
+      if (p === 'plans') return sigOf(getCachedPlans(), (x) => x.id + ':' + x.done + ':' + x.content);
+      if (p === 'timer') return sigOf(getCachedTasks(), (x) => x.id + ':' + x.done + ':' + x.name) + '#' + sigOf(getCachedPlans(), (x) => x.id + ':' + x.done + ':' + x.content);
+      if (p === 'countdown') return sigOf(loadCountdownsLocal(), (x) => x.id + ':' + x.name + ':' + x.targetDate);
+      return '';
+    }
+    function renderCurrentPage() {
+      const p = currentPage();
+      // 计时页：先把今日清单对齐到计时任务（清单↔任务联动），再渲染，确保远端改清单后任务列表随之更新
+      if (p === 'timer') { syncPlansToTasks().finally(renderTasks); return; }
+      if (p === 'plans') renderPlans();
+      else if (p === 'history') renderHistory();
+      else if (p === 'stats') renderStats();
+      else if (p === 'countdown') renderCountdownPage();
+    }
+
+    // 全量同步：认证 → 逐集合「先推后拉」→ 状态可视化 → 数据有变化才刷新当前页
+    async function syncNow() {
+      if (syncing || !USE_CLOUD) return;
+      syncing = true;
+      const sigBefore = currentPageSig();
+      setTopPill('🔄 同步中…', 'sync-on', '正在与云端同步…');         // ⑥
+      try {
+        await ensureConnection();                                  // ①
+        for (const c of collections) {                             // ②③
+          try { await c.push(); } catch (e) {}
+          try { await c.pull(); } catch (e) {}
+        }
+        // 状态以 records 拉取所维护的 cloudSyncOK 为准（records 是历史/统计的关键数据）
+        if (cloudSyncOK) {
+          lastSyncAt = Date.now(); retryDelay = RETRY_MIN; stopRetry(); setDataSyncState(true, lastSyncAt);
+          setTopPill('☁ 已同步' + (lastSyncAt ? ' · ' + agoLabel(lastSyncAt) : ''), 'sync-on', '数据已与云端一致，跨设备实时同步。点击立即同步');  // ⑥
+        } else {
+          setDataSyncState(false); scheduleRetry();                // ⑤
+          setTopPill('⚠️ 云端异常 · 后台重试', 'sync-warn', '云端读取失败，正在后台重试；当前显示本地缓存。点击立即重试');  // ⑥
+        }
+        emit();                                                    // ⑥
+        if (currentPageSig() !== sigBefore) renderCurrentPage();
+        // 若「每日复盘」弹窗正在显示，远端产生新记录后同步刷新该日复盘
+        const modal = $('#review-modal');
+        if (modal && !modal.hidden && modal.dataset.reviewDate) { try { showDailyReview(modal.dataset.reviewDate); } catch (_) {} }
+      } catch (e) {
+        try { setDataSyncState(false, undefined); } catch (_) {}
+        lastCloudError = e;
+        setTopPill(navigator.onLine ? '⚠️ 同步异常 · 后台重试' : '📴 离线 · 本地缓存', 'sync-warn', (e && e.message ? e.message : '同步失败') + '；点击立即重试');  // ⑥
+        emit(); scheduleRetry();                                   // ⑤⑥
+      } finally { syncing = false; }
+    }
+
+    // ⑤ 失败重试（指数退避）
+    function scheduleRetry() { if (retryTimer) return; retryTimer = setTimeout(() => { retryTimer = null; syncNow(); }, retryDelay); retryDelay = Math.min(retryDelay * 2, RETRY_MAX); }
+    function stopRetry() { if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; } retryDelay = RETRY_MIN; }
+
+    // 实时订阅（秒级推送）：任一表变更 → 去抖后全量同步；重连(SUBSCRIBED)后补拉离线期间变更
+    function onRemoteChange() { if (rtDebounce) clearTimeout(rtDebounce); rtDebounce = setTimeout(syncNow, 400); }
+    function subscribe() {
+      if (!USE_CLOUD || !currentUserId || !sb.channel || channel) return;
+      const ch = sb.channel('tr-sync');
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'records',   filter: `user_id=eq.${currentUserId}` }, onRemoteChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks',     filter: `user_id=eq.${currentUserId}` }, onRemoteChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'plans',     filter: `user_id=eq.${currentUserId}` }, onRemoteChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'countdown', filter: `user_id=eq.${currentUserId}` }, onRemoteChange)
+        .subscribe((st) => {
+          if (st === 'SUBSCRIBED') syncNow();
+          else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') { try { setDataSyncState(false); } catch (_) {} scheduleRetry(); }
+        });
+      channel = ch;   // 保存 RealtimeChannel 实例，供 stop() 取消订阅
+    }
+
+    // ⑤ 断网 / 重连 / 切回标签页补偿（后台标签页易漏收实时事件）
+    window.addEventListener('online', () => { retryDelay = RETRY_MIN; setTopPill('🔄 同步中…', 'sync-on', '网络已恢复，正在重新同步…'); syncNow(); });
+    window.addEventListener('offline', () => { lastCloudError = new Error('网络离线'); try { setDataSyncState(false); } catch (_) {} setTopPill('📴 离线 · 本地缓存', 'sync-warn', '网络离线，数据暂存本机；恢复联网后自动同步'); emit(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
+    window.addEventListener('focus', () => { syncNow(); });
+
+    function start() {
+      if (started || !USE_CLOUD) return; started = true;
+      // 顶部胶囊点击 → 手动触发一次全量同步
+      const pill = $('#sync-status');
+      if (pill) { pill.style.cursor = 'pointer'; pill.title = '点击立即同步'; pill.onclick = () => { if (USE_CLOUD) syncNow(); }; }
+      subscribe();
+      if (!pollTimer) pollTimer = setInterval(syncNow, POLL_MS);
+      syncNow();
+    }
+    function stop() {
+      started = false;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      stopRetry();
+      if (channel && sb && sb.removeChannel) { try { sb.removeChannel(channel); } catch (e) {} channel = null; }
+    }
+
+    return { start, stop, syncNow, onStatus, get lastSyncAt() { return lastSyncAt; } };
+  })();
+
+  // 同步诊断：对云端连通性 / 登录态 / 读取 / 写入 / 实时订阅做一次自检，返回可读报告
+  async function testCloudSync() {
+    const out = [];
+    const L = (s) => out.push(s);
+    if (!USE_CLOUD || !sb) {
+      L('❌ 云端未启用：window.supabase 未加载或 SUPABASE_URL 未配置。');
+      L('   → 检查网络是否能访问 jsDelivr/unpkg；或确认部署的是最新版（已含 CDN 兜底）。');
+      return out.join('\n');
+    }
+    L('① 云端库：✅ 已加载（' + SUPABASE_URL + '）');
+    // 登录态
+    try {
+      const { data: sess } = await sb.auth.getSession();
+      if (sess && sess.session) L('② 登录态：✅ 已登录，user_id=' + sess.session.user.id);
+      else { L('② 登录态：❌ 未登录（请先在登录页用同一账号登录）'); return out.join('\n'); }
+    } catch (e) { L('② 登录态：❌ 获取失败 → ' + (e.message || e)); return out.join('\n'); }
+    // 读取
+    try {
+      const { data, error } = await sb.from('records').select('*').limit(1);
+      if (error) L('③ 云端读取：❌ 失败 → ' + (error.message || error));
+      else L('③ 云端读取：✅ 成功（返回 ' + (data ? data.length : 0) + ' 行测试数据）');
+    } catch (e) { L('③ 云端读取：❌ 异常 → ' + (e.message || e)); }
+    // 写入（临时行，写完即删）
+    try {
+      const tmp = {
+        user_id: currentUserId, task_name: '__sync_diag__', tag: '其他', subtask: '',
+        duration_sec: 1, record_date: todayStr(), start_ts: new Date().toISOString(), end_ts: new Date().toISOString()
+      };
+      const { data, error } = await sb.from('records').insert(tmp).select().single();
+      if (error) L('④ 云端写入：❌ 失败 → ' + (error.message || error));
+      else {
+        L('④ 云端写入：✅ 成功');
+        try { await sb.from('records').delete().eq('id', data.id); L('⑤ 测试数据清理：✅'); }
+        catch (e) { L('⑤ 测试数据清理失败（可在云端手动删除 __sync_diag__ 记录）：' + (e.message || e)); }
+      }
+    } catch (e) { L('④ 云端写入：❌ 异常 → ' + (e.message || e)); }
+    // 实时订阅
+    try {
+      sb.channel('tr-diag').on('postgres_changes', { event: '*', schema: 'public', table: 'records' }, () => {}).subscribe((st) => {
+        if (st === 'CHANNEL_ERROR') console.warn('[diag] realtime CHANNEL_ERROR');
+      });
+      setTimeout(() => { try { sb.removeChannel('tr-diag'); } catch (e) {} }, 2000);
+      L('⑥ 实时订阅：✅ 已发起（控制台无 CHANNEL_ERROR 即正常）');
+    } catch (e) { L('⑥ 实时订阅：❌ 异常 → ' + (e.message || e)); }
+    // 结论
+    const failed = out.some((s) => s.includes('❌'));
+    L('');
+    L(failed ? '⚠️ 结论：云端存在异常，记录不会跨设备同步。请按上面的报错处理（多为未执行 supabase-schema.sql 导致表/RLS 缺失）。'
+             : '✅ 结论：云端读写与实时订阅均正常。只要电脑/手机用「同一网址 + 同一账号」登录，历史与统计会自动同步。');
+    return out.join('\n');
+  }
+
+  $('#sync-diag-btn').addEventListener('click', async () => {
+    const btn = $('#sync-diag-btn'), res = $('#sync-diag-result');
+    btn.disabled = true; btn.textContent = '诊断中…';
+    res.hidden = false; res.textContent = '正在检测云端连通性…';
+    try { res.textContent = await testCloudSync(); }
+    catch (e) { res.textContent = '诊断异常：' + (e.message || e); }
+    finally { btn.disabled = false; btn.textContent = '运行同步诊断'; }
+  });
+
+  /* ---------- 5. 登录界面 ---------- */
+  if (!USE_CLOUD) $('#login-sub').textContent += '（未配置云端，当前为本地模式）';
+
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const user = $('#login-user').value.trim();
+    const pass = $('#login-pass').value;
+    if (!user || !pass) return;
+    const btn = $('#login-btn'); btn.disabled = true; btn.textContent = '处理中…';
+    const msg = $('#login-msg'); msg.textContent = '';
+    try {
+      await signInOrUp(user, pass);
+      if (USE_CLOUD) await persistSessionToOS();   // 首次成功登录后安全持久化凭据
+      msg.textContent = USE_CLOUD ? '登录成功（云端）' : '登录成功（本地）'; msg.className = 'msg-ok';
+      await enterApp();
+    } catch (err) {
+      msg.textContent = err.message || '出错了'; msg.className = 'msg-err';
+    } finally {
+      btn.disabled = false; btn.textContent = '登录 / 注册';
+    }
+  });
+
+  $('#logout-btn').addEventListener('click', async () => {
+    await logout();
+    showLoginView('');   // 清除本地凭据并回到登录界面
+  });
+
+  async function enterApp() {
+    if (!currentUserId) { $('#login-view').hidden = false; $('#app-view').hidden = true; return; }
+    $('#login-view').hidden = true;
+    $('#app-view').hidden = false;
+    $('#user-label').textContent = '👤 ' + currentUser;
+    $('#settings-user').textContent = currentUser + (USE_CLOUD ? '（云端）' : '（本地）');
+    setSyncStatus();
+    const st = load(LS.settings, { reminderOn: false, reminderTime: '20:00', planSort: 'importance', aiApiUrl: '', aiApiKey: '', aiModel: 'qwen3.8-max', darkMode: false });
+    $('#reminder-on').checked = st.reminderOn;
+    $('#reminder-time').value = st.reminderTime;
+    $('#plan-sort').value = st.planSort || 'importance';
+    $('#dark-mode-toggle').checked = !!st.darkMode;
+    applyTheme(st.darkMode ? 'dark' : 'light');
+    // 旧版把「后端代理地址」当服务商直连地址，且多个免费后端（Render/Replit/Glitch/SnapDeploy）已不可用。
+    // 现默认直连 DashScope，故清空该字段改用直连；若你自有稳定后端可重新填写。
+    if (st.aiApiUrl) {
+      st.aiApiUrl = '';
+      save(LS.settings, st);
+      toast('AI 已改为直连 DashScope，请在「设置」确认 API Key 后使用');
+    }
+    $('#ai-api-url').value = st.aiApiUrl || '';
+    $('#ai-api-key').value = st.aiApiKey || '';
+    $('#ai-model').value = st.aiModel || 'qwen3.8-max';
+    await syncPlansToTasks();   // 初始化时把清单的每一项任务对齐到计时任务
+    await renderTasks();
+    await renderHistory();
+    await renderStats();
+    await renderPlans();
+    startReminderCheck();
+    startPlanReminderCheck();
+    maybeShowReviewOnLogin();
+    SyncEngine.start();          // 启动统一云同步引擎（连接认证 + 推拉合并 + 实时订阅 + 周期兜底 + 断网重试）
+    await initCountdownPage();
+  }
+
+  /* ---------- 6. 标签切换 ---------- */
+  // 进入计时页前，以清单(plans)为准把「已完成」状态全量对齐到计时任务(tasks)，
+  // 确保「清单里勾选完成 → 计时页立刻能看到已完成」在任何时机都成立。
+  // 以清单(plans)为准，把清单里的「每一项任务」都对齐到计时任务(tasks)：
+  // 计时里没有同名项则补建（继承完成态与标签），已有则同步完成态。
+  // 这样在清单新增任务后，计时界面的任务列表能实时出现该任务并可开始计时。
+  async function syncPlansToTasks() {
+    // 仅把「今日清单」中的任务同步到计时任务；明日/已完成/自定义清单不进入计时界面
+    const today = todayStr();
+    const plans = await loadPlans();
+    const tasks = await loadTasks();
+    const findTask = (name) => tasks.find((t) => normName(t.name) === normName(name));
+    for (const p of plans) {
+      if (!p.content || p.planDate !== today) continue;
+      const t = findTask(p.content);
+      if (t) {
+        if (t.done !== !!p.done) { t.done = !!p.done; await saveTask(t); }
+      } else {
+        await saveTask({ name: p.content.trim(), tag: p.tag || '其他', note: '', done: !!p.done });
+      }
+    }
+  }
+
+  function switchToPage(name) {
+    $$('nav.tabs button').forEach((x) => x.classList.toggle('active', x.dataset.page === name));
+    $$('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + name));
+    if (name === 'history') renderHistory();
+    if (name === 'stats') renderStats();
+    if (name === 'plans') renderPlans();
+    if (name === 'timer') { syncPlansToTasks().finally(renderTasks); }
+    if (name === 'countdown') renderCountdownPage();
+  }
+  $$('nav.tabs button').forEach((b) => {
+    b.addEventListener('click', () => switchToPage(b.dataset.page));
+  });
+
+  function currentPage() {
+    const p = $$('.page').find((x) => x.classList.contains('active'));
+    return p ? p.id.replace('page-', '') : 'timer';
+  }
+
+  /* ---------- 7. 任务管理 ---------- */
+  let activeTaskId = null;
+
+  async function renderTasks() {
+    // 计时页「我的任务」卡片已移除，本函数现仅用于刷新计时器的「选择任务」下拉框
+    await loadTasks();
+    await syncTimerTaskSelect();
+  }
+
+  async function syncTimerTaskSelect() {
+    const sel = $('#timer-task');
+    const cur = sel.value;
+    const todayNames = await getTodayPlanNames();
+    // 下拉框也只显示今日清单任务；若当前正计时一个非今日任务，仍保留该选项以免丢失计时上下文
+    const tasks = getCachedTasks().filter((t) => todayNames.has(normName(t.name)) || t.id === activeTaskId);
+    setHTML(sel, '<option value="">— 未选择任务 —</option>' +
+      tasks.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}（${escapeHtml(t.tag)}）</option>`).join(''));
+    if (activeTaskId && tasks.find((t) => t.id === activeTaskId)) sel.value = activeTaskId;
+    else if (cur && tasks.find((t) => t.id === cur)) sel.value = cur;
+  }
+
+  /* ---------- 7b. 每日清单（checklist） ---------- */
+  let planDate = todayStr(); // 当前查看的日期
+
+  $('#plan-date').value = planDate;
+  $('#plan-date').addEventListener('change', () => { planDate = $('#plan-date').value || todayStr(); renderPlans(); });
+  $('#plan-sort').addEventListener('change', () => {
+    const st = load(LS.settings, {}); st.planSort = $('#plan-sort').value; save(LS.settings, st);
+    renderPlans();
+  });
+  $('#add-plan-btn').addEventListener('click', async () => {
+    const content = $('#plan-content').value.trim();
+    const tag = $('#plan-tag').value.trim();
+    const planTime = $('#plan-time').value;
+    const importance = $('#plan-importance').value;
+    await savePlan({ planDate, content, tag, planTime, importance, done: false });
+    $('#plan-content').value = ''; $('#plan-tag').value = ''; $('#plan-time').value = ''; $('#plan-importance').value = '';
+    await renderPlans();
+    syncPlansToTasks().catch(() => {});   // 清单新增后立即同步到计时任务（切到计时页也会再对齐一次）
+    toast('已添加到清单');
+  });
+
+  const IMP_LABEL = { high: '高', medium: '中', low: '低' };
+  const IMP_RANK = { high: 0, medium: 1, low: 2, '': 3 };
+
+  async function renderPlans() {
+    const all = await loadPlans();
+    const list = all.filter((p) => p.planDate === planDate);
+    const wrap = $('#plan-list');
+    if (!list.length) { setHTML(wrap, '<p class="empty">这一天还没有安排，添加一项吧</p>'); return; }
+
+    const sort = $('#plan-sort').value;
+    // 已完成项沉到列表底部；分隔线后展示，组内仍按所选方式排序
+    const undone = list.filter((p) => !p.done);
+    const done = list.filter((p) => p.done);
+    let html = '';
+    if (undone.length) html += plansToHtml(undone, sort);
+    if (done.length) {
+      html += `<div class="plan-done-sep">已完成 · ${done.length}</div>`;
+      html += plansToHtml(done, sort);
+    }
+    setHTML(wrap, html);
+    bindPlanItems(wrap);
+  }
+
+  // 按所选排序方式（重要程度 / 标签分组）渲染一组清单
+  function plansToHtml(list, sort) {
+    if (sort === 'tag') {
+      // 按标签分组，组内按重要程度（高→低→无）
+      const groups = {};
+      list.forEach((p) => { const k = p.tag || '未分类'; (groups[k] = groups[k] || []).push(p); });
+      const keys = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'zh'));
+      let h = '';
+      keys.forEach((k) => {
+        const title = k === '未分类' ? '未分类' : `<span class="tag">${escapeHtml(k)}</span>`;
+        h += `<div class="plan-group-title">${title}</div>`;
+        groups[k].sort((a, b) => IMP_RANK[a.importance] - IMP_RANK[b.importance]);
+        h += groups[k].map(planItemHtml).join('');
+      });
+      return h;
+    }
+    const sorted = list.slice().sort((a, b) => IMP_RANK[a.importance] - IMP_RANK[b.importance]);
+    return sorted.map(planItemHtml).join('');
+  }
+
+  function planItemHtml(p) {
+    const impDot = p.importance ? `<span class="imp-dot imp-${p.importance}"></span>` : '';
+    const impBadge = p.importance ? `<span class="imp-badge ${p.importance}">${IMP_LABEL[p.importance]}</span>` : '';
+    const time = p.planTime ? `<span class="plan-time" title="到点提醒">⏰ ${escapeHtml(p.planTime)}</span>` : '';
+    const tag = p.tag ? `<span class="tag">${escapeHtml(p.tag)}</span>` : '';
+    const content = p.content ? escapeHtml(p.content) : '<span style="color:var(--text-soft)">（无内容）</span>';
+    // 已完成项：折叠隐藏标签/时间/重要度，仅留勾选框 + 划线内容，置灰更弱
+    const meta = p.done ? '' : `<div class="plan-meta">${tag}${time}${impBadge}</div>`;
+    return `<div class="plan-item ${p.done ? 'done' : ''}" data-id="${p.id}">
+      <div class="plan-left">
+        <input type="checkbox" class="plan-check" ${p.done ? 'checked' : ''} data-id="${p.id}" />
+        ${impDot}
+        <span class="plan-content">${content}</span>
+      </div>
+      ${meta}
+    </div>`;
+  }
+
+  function bindPlanItems(wrap) {
+    wrap.querySelectorAll('.plan-item').forEach((item) => {
+      const id = item.dataset.id;
+      item.querySelector('.plan-check').addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const all = await loadPlans();
+        const p = all.find((x) => x.id === id);
+        if (p) {
+          p.done = e.target.checked; await savePlan(p);
+          await syncTaskDoneByPlanName(p.content, p.done);  // 同步「计时」中同名任务
+          renderPlans();
+          if (currentPage() === 'timer') renderTasks();
+        }
+      });
+      item.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); showCtxMenu(e.clientX, e.clientY, id); });
+    });
+  }
+
+  // 右键菜单
+  let ctxPlanId = null;
+  const ctxMenu = $('#ctx-menu');
+  function showCtxMenu(x, y, id) {
+    ctxPlanId = id;
+    ctxMenu.hidden = false;
+    const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
+    ctxMenu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+    ctxMenu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
+  }
+  function hideCtxMenu() { ctxMenu.hidden = true; ctxPlanId = null; }
+  document.addEventListener('click', hideCtxMenu);
+  ctxMenu.addEventListener('click', (e) => e.stopPropagation());
+
+  ctxMenu.querySelector('[data-act="timer"]').addEventListener('click', async () => {
+    if (!ctxPlanId) return;
+    const all = await loadPlans();
+    const p = all.find((x) => x.id === ctxPlanId);
+    hideCtxMenu();
+    if (p) await startTimingPlan(p);
+  });
+  ctxMenu.querySelector('[data-act="done"]').addEventListener('click', async () => {
+    if (!ctxPlanId) return;
+    const all = await loadPlans();
+    const p = all.find((x) => x.id === ctxPlanId);
+    if (p) { p.done = !p.done; await savePlan(p); await syncTaskDoneByPlanName(p.content, p.done); }
+    hideCtxMenu();
+    await renderPlans();
+    if (currentPage() === 'timer') renderTasks();
+  });
+  ctxMenu.querySelector('[data-act="del"]').addEventListener('click', async () => {
+    if (!ctxPlanId) return;
+    if (!confirm('确定删除该清单项？')) { hideCtxMenu(); return; }
+    await deletePlan(ctxPlanId);
+    hideCtxMenu();
+    await renderPlans();
+  });
+
+  // 右键清单项 → 跳转到计时器并开始计时（复用原有计时功能，不删除）
+  async function startTimingPlan(plan) {
+    if (!plan.content) { toast('该清单项没有任务内容，无法计时'); return; }
+    const tag = plan.tag || '其他';
+    let tasks = await loadTasks();
+    // 归一化匹配，避免换行/空格导致找不到已有任务而重复新建
+    let task = tasks.find((t) => normName(t.name) === normName(plan.content) && t.tag === tag);
+    if (!task) task = await saveTask({ name: plan.content, tag, note: '', done: !!plan.done });
+    else if (task.done !== !!plan.done) { task.done = !!plan.done; await saveTask(task); }
+    activeTaskId = task.id;
+    syncTimerTaskSelect();
+    switchToPage('timer');
+    toast('已为你定位到计时器：' + plan.content);
+  }
+
+  /* ---------- 8. 计时器 ---------- */
+  let timer = {
+    state: 'idle', mode: 'up', accumulatedSec: 0, segStart: null,
+    targetSec: 0, sessionStartTs: null, sessionDate: null, intervalId: null,
+    targetNotified: false
+  };
+  const MAX_SEC = 36000; // 10 小时上限
+
+  $$('.mode-switch button').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (timer.state !== 'idle') { toast('请先停止当前计时'); return; }
+      $$('.mode-switch button').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      timer.mode = b.dataset.mode;
+      $('#countdown-input').style.display = timer.mode === 'down' ? 'flex' : 'none';
+      $('#target-input').style.display = timer.mode === 'up' ? 'flex' : 'none';
+      resetTimerDisplay();
+    });
+  });
+  // 初始根据默认模式显示对应面板
+  $('#countdown-input').style.display = timer.mode === 'down' ? 'flex' : 'none';
+  $('#target-input').style.display = timer.mode === 'up' ? 'flex' : 'none';
+
+  // 倒计时目标秒数：分 × 60 + 秒（精度强制为秒）
+  function getCountdownTarget() {
+    const min = Math.min(600, Math.max(0, parseInt($('#countdown-min2').value) || 0));
+    const sec = Math.min(59, Math.max(0, parseInt($('#countdown-sec').value) || 0));
+    return Math.max(1, min * 60 + sec); // 至少 1 秒
+  }
+
+  function resetTimerDisplay() {
+    $('#timer-display').textContent = timer.mode === 'down'
+      ? fmtDuration(getCountdownTarget())
+      : '00:00:00';
+    $('#timer-state-text').textContent = '准备就绪';
+  }
+
+  // 快捷预设：直接填入分 + 秒（精度已强制为秒）
+  $$('#cd-presets button').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (timer.state !== 'idle') { toast('请先停止当前计时'); return; }
+      const m = parseInt(b.dataset.min) || 0, s = parseInt(b.dataset.sec) || 0;
+      $('#countdown-min2').value = m;
+      $('#countdown-sec').value = s;
+      resetTimerDisplay();
+    });
+  });
+
+  [$('#countdown-min2'), $('#countdown-sec')].forEach((el) => {
+    el.addEventListener('input', () => { if (timer.state === 'idle') resetTimerDisplay(); });
+  });
+
+  // ---------- 正计时·目标时长（到点提醒 / 自动停） ----------
+  function getTargetSec() {
+    if (!$('#target-enable').checked) return 0;
+    const m = Math.min(600, Math.max(0, parseInt($('#target-min2').value) || 0));
+    const s = Math.min(59, Math.max(0, parseInt($('#target-sec').value) || 0));
+    return Math.max(1, m * 60 + s);
+  }
+  $('#target-enable').addEventListener('change', () => {
+    $('#target-body').style.display = $('#target-enable').checked ? 'flex' : 'none';
+  });
+
+  function currentElapsed() {
+    let e = timer.accumulatedSec;
+    if (timer.state === 'running' && timer.segStart) e += (Date.now() - timer.segStart) / 1000;
+    return e;
+  }
+
+  function tick() {
+    if (timer.mode === 'up') {
+      const e = currentElapsed();
+      $('#timer-display').textContent = fmtDuration(e);
+      if (e >= MAX_SEC) { stopTimer(true); toast('已达 10 小时上限，已自动记录'); return; }
+      // 目标时长提醒 / 自动停（仅正计时、已启用目标）
+      const tgt = getTargetSec();
+      if (tgt > 0 && e >= tgt && !timer.targetNotified) {
+        timer.targetNotified = true;
+        if ($('#target-autostop').checked) {
+          toast('🎯 已达目标时长，已自动停止并记录');
+          notifyBrowser('Time Recorder', '已达目标时长，已自动记录');
+          stopTimer(true);
+        } else {
+          toast('🎯 已达目标时长！');
+          notifyBrowser('Time Recorder', '已达目标时长');
+        }
+      }
+    } else {
+      const remaining = Math.max(0, timer.targetSec - currentElapsed());
+      $('#timer-display').textContent = fmtDuration(remaining);
+      if (remaining <= 0) { stopTimer(true); toast('倒计时结束，已记录'); }
+    }
+  }
+
+  function setTimerButtons() {
+    $('#start-btn').disabled = timer.state !== 'idle';
+    $('#pause-btn').disabled = timer.state !== 'running';
+    $('#resume-btn').disabled = timer.state !== 'paused';
+    $('#stop-btn').disabled = timer.state === 'idle';
+  }
+
+  $('#start-btn').addEventListener('click', () => {
+    if (timer.state !== 'idle') return;
+    timer.state = 'running';
+    timer.accumulatedSec = 0;
+    timer.segStart = Date.now();
+    timer.sessionStartTs = Date.now();
+    timer.sessionDate = todayStr(new Date(timer.sessionStartTs));
+    timer.targetNotified = false;
+    if (timer.mode === 'down') {
+      timer.targetSec = getCountdownTarget();
+    }
+    $('#timer-state-text').textContent = timer.mode === 'up' ? '计时中…' : '倒计时中…';
+    setTimerButtons();
+    timer.intervalId = setInterval(tick, 250);
+  });
+
+  $('#pause-btn').addEventListener('click', () => {
+    if (timer.state !== 'running') return;
+    timer.accumulatedSec += (Date.now() - timer.segStart) / 1000;
+    timer.segStart = null;
+    timer.state = 'paused';
+    clearInterval(timer.intervalId);
+    $('#timer-state-text').textContent = '已暂停（未记录）';
+    setTimerButtons();
+  });
+
+  $('#resume-btn').addEventListener('click', () => {
+    if (timer.state !== 'paused') return;
+    timer.segStart = Date.now();
+    timer.state = 'running';
+    $('#timer-state-text').textContent = '计时中…';
+    setTimerButtons();
+    timer.intervalId = setInterval(tick, 250);
+  });
+
+  async function stopTimer(auto = false) {
+    if (timer.state === 'idle') return;
+    const elapsed = currentElapsed();
+    clearInterval(timer.intervalId);
+    let durationSec = timer.mode === 'up' ? elapsed : Math.min(timer.targetSec, elapsed);
+    durationSec = Math.max(1, Math.round(durationSec));
+
+    const taskId = $('#timer-task').value;
+    const tasks = getCachedTasks();
+    const task = tasks.find((t) => t.id === taskId);
+    const taskName = task ? task.name : '未命名任务';
+    const tag = task ? task.tag : '其他';
+    const subtask = ''; // 子任务已废弃，统一用任务备注
+
+    const record = {
+      taskId: taskId || null, taskName, tag, subtask,
+      durationSec, date: timer.sessionDate, startTs: timer.sessionStartTs, endTs: Date.now()
+    };
+    // 先复位计时器 UI（无论保存成败，计时都已结束）；保存失败给出明确提示但记录已在本地兜底
+    timer.state = 'idle'; timer.accumulatedSec = 0; timer.segStart = null;
+    timer.sessionStartTs = null; timer.sessionDate = null;
+    setTimerButtons(); resetTimerDisplay();
+    try {
+      await addRecord(record);
+      toast(`已记录：${taskName} ${fmtSpan(durationSec)}`);
+    } catch (e) {
+      toast('⚠️ 保存失败：' + e.message);
+    }
+    // 保存成功后自动刷新历史、统计界面及可能打开的时间复盘弹窗（新增记录即时可见）
+    if (currentPage() === 'history') renderHistory();
+    if (currentPage() === 'stats') renderStats();
+    const modal = $('#review-modal');
+    if (modal && !modal.hidden && modal.dataset.reviewDate) {
+      showDailyReview(modal.dataset.reviewDate);
+    }
+  }
+  $('#stop-btn').addEventListener('click', () => stopTimer(false));
+
+  /* ---------- 9. 历史记录 ---------- */
+  let currentRange = 'day';
+  let historyPage = 0;
+  const PAGE_SIZE = 50;
+
+  $$('.filter-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      $$('.filter-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      currentRange = b.dataset.range;
+      historyPage = 0;
+      renderHistory();
+    });
+  });
+
+  function rangeFilter(records) {
+    const now = new Date();
+    const today = todayStr(now);
+    const yesterday = todayStr(new Date(Date.now() - 86400000));
+    if (currentRange === 'all') return records;
+    if (currentRange === 'day') return records.filter((r) => r.date === today);
+    if (currentRange === 'yesterday') return records.filter((r) => r.date === yesterday);
+    if (currentRange === 'week') {
+      const dow = (now.getDay() + 6) % 7;
+      const monday = new Date(now); monday.setDate(now.getDate() - dow);
+      return records.filter((r) => r.date >= todayStr(monday));
+    }
+    if (currentRange === 'month') return records.filter((r) => r.date.startsWith(today.slice(0, 7)));
+    return records;
+  }
+
+  async function renderHistory() {
+    const wrap = $('#history-table-wrap');
+    const pager = $('#history-pager');
+    let rows = [], total = 0;
+
+    // 统一数据源：云端模式会先刷新缓存（失败则回退本地），本地模式直接读缓存；
+    // 无论云端是否可用，所有已保存的计时记录（含本地兜底）都会被读出并展示。
+    const all = rangeFilter(await loadRecords()).sort((a, b) => b.startTs - a.startTs);
+    total = all.length;
+    rows = all.slice(historyPage * PAGE_SIZE, historyPage * PAGE_SIZE + PAGE_SIZE);
+
+    if (!rows.length) { setHTML(wrap, '<p class="empty">暂无记录</p>'); setHTML(pager, ''); return; }
+    let html = `<table><thead><tr><th>任务</th><th>标签</th><th>时长</th><th>日期</th><th>操作</th></tr></thead><tbody>`;
+    rows.forEach((r) => {
+      html += `<tr>
+        <td>${escapeHtml(r.taskName)}</td>
+        <td><span class="tag">${escapeHtml(r.tag)}</span></td>
+        <td>${fmtSpan(r.durationSec)}</td>
+        <td>${r.date}</td>
+        <td><button class="btn-danger" data-del="${r.id}">删除</button></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    setHTML(wrap, html);
+    wrap.querySelectorAll('[data-del]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('确定删除该记录？此操作不可恢复')) return;
+        await deleteRecord(btn.dataset.del);
+        renderHistory();
+        if (currentPage() === 'stats') renderStats();
+      };
+    });
+
+    // 分页器
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const cur = historyPage + 1;
+    setHTML(pager, `
+      <button class="btn-ghost" id="prev-page" ${historyPage === 0 ? 'disabled' : ''}>上一页</button>
+      <span>第 ${cur} / ${totalPages} 页 · 共 ${total} 条</span>
+      <button class="btn-ghost" id="next-page" ${historyPage >= totalPages - 1 ? 'disabled' : ''}>下一页</button>`);
+    const prev = $('#prev-page'), next = $('#next-page');
+    if (prev) prev.onclick = () => { if (historyPage > 0) { historyPage--; renderHistory(); } };
+    if (next) next.onclick = () => { if (historyPage < totalPages - 1) { historyPage++; renderHistory(); } };
+  }
+
+  /* ---------- 10. 统计看板 ---------- */
+  async function renderStats() {
+    const now = new Date();
+    const today = todayStr(now);
+    const dow = (now.getDay() + 6) % 7;
+    const monday = new Date(now); monday.setDate(now.getDate() - dow);
+    const monStr = todayStr(monday);
+
+    // 统一使用 loadRecords（本地缓存 + 云端合并后的同一份数据），与历史、时间复盘完全一致
+    const records = await loadRecords();
+    const byDay = {};
+    records.forEach((r) => { byDay[r.date] = (byDay[r.date] || 0) + r.durationSec; });
+    const todayMin = fmtSpan(byDay[today] || 0);
+    const weekMin = fmtSpan(records.filter((r) => r.date >= monStr).reduce((s, r) => s + r.durationSec, 0));
+    const totalMin = fmtSpan(records.reduce((s, r) => s + r.durationSec, 0));
+
+    $('#stat-today').textContent = todayMin;
+    $('#stat-week').textContent = weekMin;
+    $('#stat-total').textContent = totalMin;
+
+    // 连续打卡（P2）
+    let streak = 0;
+    let d = new Date(now);
+    while (byDay[todayStr(d)] > 0) { streak++; d.setDate(d.getDate() - 1); }
+    if (streak === 0 && byDay[todayStr(new Date(Date.now() - 86400000))] > 0) {
+      let dd = new Date(Date.now() - 86400000);
+      while (byDay[todayStr(dd)] > 0) { streak++; dd.setDate(dd.getDate() - 1); }
+    }
+    setHTML($('#streak-wrap'), streak > 0
+      ? `<div class="streak-badge">🔥 连续学习 ${streak} 天</div>`
+      : '<div class="streak-badge" style="background:rgba(107,114,128,.6)">开始你的第一次记录吧</div>');
+
+    // 热力图：近 70 天
+    const maxMin = Math.max(1, ...Object.values(byDay).map((s) => fmtMinutes(s)));
+    const heat = $('#heatmap'); setHTML(heat, '');
+    for (let i = 69; i >= 0; i--) {
+      const dt = new Date(Date.now() - i * 86400000);
+      const m = fmtMinutes(byDay[todayStr(dt)] || 0);
+      const ratio = m / maxMin;
+      const cell = document.createElement('div');
+      cell.className = 'heat-cell';
+      cell.style.background = m === 0 ? 'rgba(59,130,246,.08)' : `rgba(59,130,246,${0.15 + ratio * 0.8})`;
+      cell.title = `${todayStr(dt)}：${m} 分钟`;
+      heat.appendChild(cell);
+    }
+    drawTrend(byDay);
+    // 新增：任务看板（完成率环形图 + 优先级条形图）
+    await renderTaskCharts();
+  }
+
+  function drawTrend(byDay) {
+    const canvas = $('#trend-chart');
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || 600;
+    canvas.width = cssW * dpr; canvas.height = 220 * dpr;
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    const W = cssW, H = 220, pad = 30;
+    ctx.clearRect(0, 0, W, H);
+    const days = [];
+    for (let i = 13; i >= 0; i--) { const dt = new Date(Date.now() - i * 86400000); days.push({ d: dt, m: fmtMinutes(byDay[todayStr(dt)] || 0) }); }
+    const maxV = Math.max(10, ...days.map((x) => x.m));
+    const stepX = (W - pad * 2) / (days.length - 1);
+    ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) { const y = pad + (H - pad * 2) * g / 4; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke(); }
+    ctx.strokeStyle = '#3B82F6'; ctx.lineWidth = 2.5; ctx.beginPath();
+    days.forEach((x, i) => { const px = pad + stepX * i, py = pad + (H - pad * 2) * (1 - x.m / maxV); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
+    ctx.stroke();
+    days.forEach((x, i) => { const px = pad + stepX * i, py = pad + (H - pad * 2) * (1 - x.m / maxV); ctx.fillStyle = '#3B82F6'; ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill(); });
+    ctx.fillStyle = '#6b7280'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    days.forEach((x, i) => { if (i % 3 === 0) ctx.fillText(`${x.d.getMonth() + 1}/${x.d.getDate()}`, pad + stepX * i, H - 8); });
+    ctx.textAlign = 'left'; ctx.fillText(maxV + '分', pad, pad - 10);
+  }
+  window.addEventListener('resize', () => { if (currentPage() === 'stats') renderStats(); });
+
+  /* ---------- 11. 导出 / 备份（P1） ---------- */
+  function download(filename, content, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 导出使用本地缓存（离线也可用）
+  $('#export-csv-btn').addEventListener('click', () => {
+    const records = getCachedRecords();
+    if (!records.length) { toast('没有可导出的数据'); return; }
+    const header = '任务,标签,时长,日期,开始时间,结束时间';
+    const rows = records.slice().sort((a, b) => b.startTs - a.startTs).map((r) =>
+      [`"${r.taskName}"`, `"${r.tag}"`, fmtSpan(r.durationSec), r.date,
+       new Date(r.startTs).toLocaleString(), new Date(r.endTs).toLocaleString()].join(','));
+    download(`TimeRecorder_${todayStr()}.csv`, '﻿' + [header, ...rows].join('\n'), 'text/csv;charset=utf-8');
+    toast('已导出 Excel(CSV)');
+  });
+
+  $('#export-json-btn').addEventListener('click', () => {
+    const backup = {
+      tasks: getCachedTasks(), records: getCachedRecords(), plans: getCachedPlans(),
+      settings: load(LS.settings, {}), exportAt: new Date().toISOString()
+    };
+    download(`TimeRecorder_backup_${todayStr()}.json`, JSON.stringify(backup, null, 2), 'application/json');
+    toast('已导出完整备份');
+  });
+
+  $('#import-json-btn').addEventListener('click', () => $('#import-file').click());
+  $('#import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = JSON.parse(reader.result);
+        // 先把云端清空（若开启），再写入导入内容，保证两端一致
+        if (USE_CLOUD && currentUserId) {
+          await sb.from('tasks').delete().eq('user_id', currentUserId);
+          await sb.from('records').delete().eq('user_id', currentUserId);
+          await sb.from('plans').delete().eq('user_id', currentUserId);
+        }
+        if (data.tasks) { for (const t of data.tasks) { delete t.id; await saveTask({ name: t.name, tag: t.tag, note: t.note || '', done: !!t.done }); } }
+        if (data.records) { for (const r of data.records) { await addRecord({ taskId: r.taskId || null, taskName: r.taskName, tag: r.tag, subtask: r.subtask || '', durationSec: r.durationSec, date: r.date, startTs: r.startTs, endTs: r.endTs }); } }
+        if (data.plans) { for (const p of data.plans) { delete p.id; await savePlan({ planDate: p.planDate, content: p.content || '', tag: p.tag || '', planTime: p.planTime || '', importance: p.importance || '', done: !!p.done }); } }
+        await renderTasks(); await renderHistory(); await renderStats(); await renderPlans();
+        toast('备份已导入并同步');
+      } catch (err) { toast('备份文件格式错误'); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  /* ---------- 12. 提醒（P2） ---------- */
+  function saveSettings() {
+    const cur = load(LS.settings, {});
+    cur.reminderOn = $('#reminder-on').checked;
+    cur.reminderTime = $('#reminder-time').value;
+    save(LS.settings, cur);
+  }
+  $('#reminder-on').addEventListener('change', saveSettings);
+  $('#reminder-time').addEventListener('change', saveSettings);
+
+  // 深色模式开关：即时保存并应用；统计页可见时重绘图表以套用中性色
+  $('#dark-mode-toggle').addEventListener('change', () => {
+    const on = $('#dark-mode-toggle').checked;
+    const cur = load(LS.settings, {});
+    cur.darkMode = on;
+    save(LS.settings, cur);
+    applyTheme(on ? 'dark' : 'light');
+    if ($('#page-stats') && !$('#page-stats').hidden) renderTaskCharts();
+  });
+
+  let lastReminderKey = '';
+  function startReminderCheck() {
+    setInterval(() => {
+      const st = load(LS.settings, {});
+      if (!st.reminderOn) return;
+      const nowStr = new Date().toTimeString().slice(0, 5);
+      const key = todayStr() + ' ' + nowStr;
+      if (nowStr === st.reminderTime && key !== lastReminderKey) {
+        lastReminderKey = key;
+        toast('⏰ 该开始学习啦！');
+        notifyBrowser('Time Recorder', '到设定时间了，开始一次计时吧～');
+      }
+    }, 30000);
+  }
+
+  /* ---------- 12c. 清单任务·到时间提醒 ---------- */
+  // 对「今天」设置了计划时间(planTime)且未完成的清单项，到点触发一次提醒；
+  // 应用晚打开时会补提醒当天漏掉的任务。去重：当天已提醒的任务 id 持久化到
+  // localStorage，跨刷新/重开/跨设备（同一账号多端各自提醒）不重复弹。
+  const REMINDED_KEY_PREFIX = 'tr_reminded_';
+
+  function remindedSet(dateStr) {
+    return new Set(load(REMINDED_KEY_PREFIX + dateStr, []));
+  }
+  function persistReminded(dateStr, set) {
+    save(REMINDED_KEY_PREFIX + dateStr, Array.from(set));
+  }
+
+  async function checkPlanReminders() {
+    let plans;
+    try { plans = await loadPlans(); } catch (e) { return; }
+    const nowStr = new Date().toTimeString().slice(0, 5);   // HH:MM
+    const today = todayStr();
+    const reminded = remindedSet(today);
+    let changed = false;
+
+    for (const p of plans) {
+      if (p.done) continue;                                     // 已完成不提醒
+      if ((p.planDate || '').slice(0, 10) !== today) continue;  // 只提醒今天的任务
+      const t = String(p.planTime || '').slice(0, 5);
+      if (!/^\d{2}:\d{2}$/.test(t)) continue;                   // 无有效计划时间
+      if (nowStr < t) continue;                                 // 还没到点
+      if (reminded.has(p.id)) continue;                         // 当天已提醒过
+      reminded.add(p.id); changed = true;
+      const name = p.content || '未命名任务';
+      toast('⏰ 任务「' + name + '」到时间了（' + t + '）');
+      try { notifyBrowser('Time Recorder', '任务「' + name + '」到时间了（' + t + '）'); } catch (e) {}
+    }
+    if (changed) persistReminded(today, reminded);
+  }
+
+  function startPlanReminderCheck() {
+    checkPlanReminders();                     // 启动立即检查一次（补当天漏掉/晚打开的提醒）
+    setInterval(checkPlanReminders, 30000);   // 之后每 30s 轮询
+  }
+
+  /* ---------- 12b. 每日复盘（当天首次登入时弹昨日复盘） ---------- */
+  const REVIEW_PALETTE = ['#3B82F6', '#8B5CF6', '#06B6D4', '#10B981', '#F59E0B', '#EC4899', '#6366F1', '#14B8A6', '#F97316', '#A855F7', '#0EA5E9', '#84CC16'];
+
+  function drawDonut(canvas, segments) {
+    const dpr = window.devicePixelRatio || 1;
+    const size = 200;
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    const cx = size / 2, cy = size / 2, r = size / 2 - 6, inner = r * 0.58;
+    ctx.clearRect(0, 0, size, size);
+    const total = segments.reduce((s, x) => s + x.value, 0);
+    if (total <= 0) { ctx.fillStyle = '#cbd5e1'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('无数据', cx, cy); return; }
+    let start = -Math.PI / 2;
+    segments.forEach((seg) => {
+      const ang = seg.value / total * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, start + ang);
+      ctx.closePath(); ctx.fillStyle = seg.color; ctx.fill();
+      start += ang;
+    });
+    ctx.beginPath(); ctx.arc(cx, cy, inner, 0, Math.PI * 2);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--surface-solid').trim() || 'rgba(255,255,255,.88)';
+    ctx.fill();
+  }
+
+  // 昨日 24 小时时间轴：把每条记录按起止时间夹取在该日内，渲染成时间轴上的彩色片段（标注任务名 + 时长）
+  function buildTimelineHTML(records, dateStr, taskColor) {
+    const dayStart = new Date(dateStr + 'T00:00:00').getTime();
+    const dayEnd = dayStart + 86400000;
+    const segs = records.map((r) => {
+      const s = Math.max(r.startTs || 0, dayStart);
+      const e = Math.min(r.endTs || (s + (r.durationSec || 0) * 1000), dayEnd);
+      if (!(e > s)) return null;
+      const name = r.taskName || '未命名';
+      return {
+        name, dur: r.durationSec || Math.round((e - s) / 1000),
+        color: taskColor[name] || '#94a3b8',
+        left: (s - dayStart) / 86400000 * 100,
+        width: (e - s) / 86400000 * 100
+      };
+    }).filter(Boolean).sort((a, b) => a.left - b.left);
+
+    if (!segs.length) return '<div class="review-empty" style="padding:14px 0">这一天暂无足够的时间区间信息</div>';
+    const segHTML = segs.map((sg) => {
+      const left = Math.max(0, Math.min(100, sg.left));
+      const width = Math.max(0.6, Math.min(100 - left, sg.width));
+      const label = escapeHtml(sg.name) + ' · ' + fmtSpan(sg.dur);
+      return `<div class="tl-seg" style="left:${left}%;width:${width}%;background:${sg.color}" title="${label}"><span class="tl-seg-text">${label}</span></div>`;
+    }).join('');
+    return `<div class="tl-track">${segHTML}</div><div class="tl-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`;
+  }
+
+  async function showDailyReview(dateStr) {
+    const records = await getDayRecords(dateStr);
+    const modal = $('#review-modal');
+    modal.dataset.reviewDate = dateStr;
+    $('#review-date').textContent = dateStr + ' 的时间去向';
+    const body = $('#review-body');
+
+    if (!records.length) {
+      setHTML(body, '<div class="review-empty">🌙 这一天还没有时间记录<br>今天记得用计时器记录一下吧～</div>');
+    } else {
+      const byEvent = {}, byTag = {};
+      let totalSec = 0;
+      records.forEach((r) => {
+        const nm = r.taskName || '未命名';
+        byEvent[nm] = (byEvent[nm] || 0) + r.durationSec;
+        const tg = r.tag || '其他';
+        byTag[tg] = (byTag[tg] || 0) + r.durationSec;
+        totalSec += r.durationSec;
+      });
+      const eventSegs = Object.entries(byEvent).sort((a, b) => b[1] - a[1])
+        .map(([name, val], i) => ({ label: name, value: val, color: REVIEW_PALETTE[i % REVIEW_PALETTE.length] }));
+      const tagRows = Object.entries(byTag).sort((a, b) => b[1] - a[1])
+        .map(([name, val]) => `<div class="legend-row"><span class="sw" style="background:rgba(59,130,246,.5)"></span><span class="nm">${escapeHtml(name)}</span><span class="vl">${fmtSpan(val)}</span></div>`).join('');
+      const eventRows = eventSegs.map((s) => `<div class="legend-row"><span class="sw" style="background:${s.color}"></span><span class="nm">${escapeHtml(s.label)}</span><span class="vl">${fmtSpan(s.value)}</span></div>`).join('');
+
+      const taskColor = {}; eventSegs.forEach((s) => { taskColor[s.label] = s.color; });
+      const timelineHTML = buildTimelineHTML(records, dateStr, taskColor);
+
+      setHTML(body, `
+        <div class="review-total">昨日共记录 <b>${fmtSpan(totalSec)}</b></div>
+        <div class="modal-body-grid">
+          <div style="text-align:center"><canvas id="review-donut"></canvas></div>
+          <div class="review-legend">
+            <h4>按事件</h4>${eventRows}
+            <h4 style="margin-top:12px">按标签</h4>${tagRows}
+          </div>
+        </div>
+        <div class="review-timeline">
+          <div class="tl-title">🕐 24 小时时间轴</div>
+          ${timelineHTML}
+        </div>`);
+      drawDonut($('#review-donut'), eventSegs);
+    }
+    modal.hidden = false;
+  }
+
+  $('#review-close').addEventListener('click', () => { $('#review-modal').hidden = true; });
+  $('#review-modal').addEventListener('click', (e) => { if (e.target.id === 'review-modal') $('#review-modal').hidden = true; });
+
+  // 统计页：随时查看某天复盘
+  $('#review-pick-date').value = todayStr(new Date(Date.now() - 86400000));
+  $('#review-pick-btn').addEventListener('click', async () => {
+    const d = $('#review-pick-date').value || todayStr(new Date(Date.now() - 86400000));
+    await showDailyReview(d);
+  });
+
+  // 统计界面「🔄 刷新同步」：主动从云端拉取最新数据（跨设备登录后手动对齐也很方便）
+  $('#stats-refresh-btn').addEventListener('click', async () => {
+    const btn = $('#stats-refresh-btn');
+    btn.disabled = true; btn.textContent = '🔄 同步中…';
+    try { await SyncEngine.syncNow(); }          // 手动触发一次全量同步（推 + 拉 + 合并 + 状态刷新）
+    finally { btn.disabled = false; btn.textContent = '🔄 刷新同步'; }
+  });
+
+  let lastReviewKey = load('tr_last_review', '');
+  async function maybeShowReviewOnLogin() {
+    const yStr = todayStr(new Date(Date.now() - 86400000));  // 复盘内容为前一天
+    if (lastReviewKey === yStr) return;                        // 当日已弹过则不再弹
+    const recs = await getDayRecords(yStr);
+    lastReviewKey = yStr;
+    save('tr_last_review', yStr);
+    if (!recs.length) return;                                  // 前一天无记录则不弹复盘
+    showDailyReview(yStr);
+  }
+
+  /* ---------- 13. 清空数据 ---------- */
+  $('#clear-data-btn').addEventListener('click', async () => {
+    if (!confirm('确定清空本账号的全部数据（任务 + 记录 + 清单，含云端）？')) return;
+    if (USE_CLOUD && currentUserId) {
+      await sb.from('tasks').delete().eq('user_id', currentUserId);
+      await sb.from('records').delete().eq('user_id', currentUserId);
+      await sb.from('plans').delete().eq('user_id', currentUserId);
+    }
+    save(CACHE.tasks, []); save(CACHE.records, []); save(CACHE.plans, []);
+    activeTaskId = null; await renderTasks(); await renderHistory(); await renderStats(); await renderPlans();
+    toast('数据已清空');
+  });
+
+  /* ---------- 14. 实时订阅（跨设备同步） ----------
+     实时订阅已统一收敛到 SyncEngine（见上方「统一跨设备云同步引擎」）：
+     由 SyncEngine.subscribe() 订阅 records/tasks/plans/countdown 四张表，
+     变更去抖后触发 syncNow() 全量同步，SUBSCRIBED 重连后自动补拉离线期间的变更。 */
+
+  /* ---------- 8c. ⏳ 倒数日页面（本地 localStorage + 云端 Supabase 同步，支持多条目） ---------- */
+  const CD_LS = 'tr_countdowns';   // 本地缓存键：对象数组 [{id,name,targetDate}]
+
+  // 从旧版单日期键迁移（保留用户数据）
+  function migrateOldCountdown() {
+    try {
+      const old = localStorage.getItem('tr_countdown_date');
+      if (!old) return;
+      const list = loadCountdownsLocal();
+      if (!list.find((c) => c.targetDate === old)) {
+        list.push({ id: uid(), name: '目标日期', targetDate: old });
+        saveCountdownsLocal(list);
+      }
+      localStorage.removeItem('tr_countdown_date');
+    } catch (e) {}
+  }
+  function loadCountdownsLocal() {
+    try { return JSON.parse(localStorage.getItem(CD_LS) || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveCountdownsLocal(list) {
+    try { localStorage.setItem(CD_LS, JSON.stringify(list || [])); } catch (e) {}
+  }
+
+  // 云端读取：登录且连上 Supabase 时优先取云端（同一账号多端/多设备即自动同步）
+  async function fetchCountdownsFromCloud() {
+    if (!USE_CLOUD || !currentUserId) return null;
+    try {
+      const { data, error } = await sb.from('countdown')
+        .select('*').eq('user_id', currentUserId).order('updated_at');
+      if (error) return null;
+      return (data || []).map((r) => ({ id: r.id, name: r.name || '', targetDate: r.target_date || '' }));
+    } catch (e) { return null; }
+  }
+  // 云端写入单条（新增/覆盖）。返回是否成功；本地非 UUID id 先换成合法 UUID（云端主键为 uuid），失败则标 _dirty 待重试
+  async function saveCountdownToCloud(item) {
+    if (!USE_CLOUD || !currentUserId || !item) return false;
+    try {
+      if (!isUuid(item.id)) item.id = newUuid();
+      const { error } = await sb.from('countdown').upsert({
+        id: item.id, user_id: currentUserId, name: item.name,
+        target_date: item.targetDate, updated_at: new Date().toISOString()
+      });
+      if (error) { item._dirty = true; return false; }
+      delete item._dirty; return true;
+    } catch (e) { item._dirty = true; return false; }
+  }
+  // 云端删除单条
+  async function deleteCountdownFromCloud(id) {
+    if (!USE_CLOUD || !currentUserId || !id) return;
+    try { await sb.from('countdown').delete().eq('id', id); } catch (e) {}
+  }
+
+  // 将 2026-12-25 格式化为 2026年12月25日
+  function formatCountdownDate(s) {
+    const [y, m, d] = s.split('-');
+    return `${y}年${m}月${d}日`;
+  }
+  // 相对今天的天数差：>0 未来，0 今天，<0 已过
+  function daysDiff(targetStr) {
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const [y, m, d] = targetStr.split('-').map(Number);
+    const g = new Date(y, m - 1, d); g.setHours(0, 0, 0, 0);
+    return Math.round((g - t) / 86400000);
+  }
+
+  // 渲染倒数日列表：未过期按天数升序，过期置底、置灰、显示「已过期」
+  function renderCountdownPage() {
+    const list = loadCountdownsLocal();
+    const wrap = $('#cd-list');
+    if (!list.length) { setHTML(wrap, '<p class="cd-empty">还没有倒数日，添加一个吧</p>'); return; }
+
+    const withDiff = list.map((c) => ({ ...c, diff: daysDiff(c.targetDate) }));
+    const active = withDiff.filter((c) => c.diff >= 0).sort((a, b) => a.diff - b.diff);
+    const expired = withDiff.filter((c) => c.diff < 0).sort((a, b) => b.diff - a.diff);
+
+    setHTML(wrap, [...active, ...expired].map((c) => {
+      const isExpired = c.diff < 0;
+      const daysText = isExpired ? '已过期'
+        : (c.diff === 0 ? '就是今天' : `还有 ${c.diff} 天`);
+      return `<div class="cd-item ${isExpired ? 'expired' : ''}" data-id="${c.id}">
+        <div class="cd-info">
+          <span class="cd-name">${escapeHtml(c.name || '未命名')}</span>
+          <span class="cd-date">${formatCountdownDate(c.targetDate)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="cd-days">${daysText}</span>
+          <button class="btn-danger" data-act="del">删除</button>
+        </div>
+      </div>`;
+    }).join(''));
+
+    wrap.querySelectorAll('[data-act="del"]').forEach((btn) => {
+      btn.onclick = () => deleteCountdown(btn.closest('.cd-item').dataset.id);
+    });
+  }
+
+  async function addCountdown(name, targetDate) {
+    const item = { id: newUuid(), name: name.trim(), targetDate };
+    await saveCountdownToCloud(item);          // 先上云（可能失败→标 _dirty），再落本地缓存，保证缓存里的 id 与云端一致
+    const list = loadCountdownsLocal();
+    list.push(item);
+    saveCountdownsLocal(list);
+  }
+  async function deleteCountdown(id) {
+    if (!confirm('确定删除这个倒数日？')) return;
+    const list = loadCountdownsLocal().filter((c) => c.id !== id);
+    saveCountdownsLocal(list);
+    await deleteCountdownFromCloud(id);
+    renderCountdownPage();
+  }
+
+  // 合并云端倒数日到本地（冲突解决）：以云端为准，但保留本地 _dirty（待上传）或云端不存在的本地新增项
+  function mergeCountdowns(cloudRows) {
+    const cloud = cloudRows || [];
+    const local = loadCountdownsLocal();
+    const cloudIds = new Set(cloud.map((c) => c.id));
+    const keepLocal = local.filter((l) => l._dirty && !cloudIds.has(l.id)); // 仅保留本地未上云的脏数据
+    const merged = cloud.concat(keepLocal);
+    saveCountdownsLocal(merged);
+    return merged;
+  }
+
+  // 初始化：迁移旧数据、拉取云端、渲染、绑定添加事件
+  async function initCountdownPage() {
+    migrateOldCountdown();
+    const cloud = await fetchCountdownsFromCloud();
+    if (cloud) mergeCountdowns(cloud);
+    renderCountdownPage();
+
+    $('#cd-add-btn').onclick = async () => {
+      const name = $('#cd-name').value.trim();
+      const targetDate = $('#cd-target').value;
+      if (!name || !targetDate) { toast('请填写名称和目标日期'); return; }
+      await addCountdown(name, targetDate);
+      $('#cd-name').value = '';
+      $('#cd-target').value = '';
+      renderCountdownPage();
+      toast('已添加倒数日');
+    };
+  }
+
+  /* ---------- 14b. 统计看板：任务图表（Chart.js） ---------- */
+  // Chart.js 实例注册表：重绘前先销毁旧实例，避免 canvas 被重复占用
+  const trCharts = {};
+  function destroyChart(key) { if (trCharts[key]) { try { trCharts[key].destroy(); } catch (_) {} trCharts[key] = null; } }
+
+  async function renderTaskCharts() {
+    const dateEl = $('#stats-task-date');
+    if (!dateEl) return;
+    if (!dateEl.value) dateEl.value = todayStr();           // 默认选中今天
+    if (!$('#task-done-chart').clientWidth) return;         // 统计页未显示时跳过（隐藏 canvas 尺寸为 0）
+    if (typeof Chart === 'undefined') {                      // Chart.js 未加载（离线）时给出提示
+      setHTML($('#task-done-chart').parentElement, '<p class="empty">图表库未加载，请联网后重试</p>');
+      return;
+    }
+    const date = dateEl.value;
+    const plans = (await loadPlans()).filter((p) => p.planDate === date);
+    const done = plans.filter((p) => p.done).length;
+    const undone = plans.length - done;
+    const pct = plans.length ? Math.round((done / plans.length) * 100) : 0;
+
+    // 中性色（未完成 / 未设）跟随深浅色主题，避免浅灰在深底下看不清
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const neutral = isDark ? '#374151' : '#E5E7EB';
+    const neutral2 = isDark ? '#4B5563' : '#cbd5e1';
+
+    destroyChart('done');
+    trCharts.done = new Chart($('#task-done-chart'), {
+      type: 'doughnut',
+      data: { labels: ['已完成', '未完成'], datasets: [{ data: [done, undone], backgroundColor: ['#10B981', neutral], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '62%',
+        plugins: { legend: { position: 'bottom' }, title: { display: true, text: `完成率 ${pct}%` } } }
+    });
+
+    const cnt = { high: 0, medium: 0, low: 0, '': 0 };
+    plans.forEach((p) => { cnt[p.importance || '']++; });
+    destroyChart('pri');
+    trCharts.pri = new Chart($('#task-priority-chart'), {
+      type: 'bar',
+      data: { labels: ['高', '中', '低', '未设'], datasets: [{ label: '任务数', data: [cnt.high, cnt.medium, cnt.low, cnt['']], backgroundColor: ['#ef4444', '#f59e0b', '#eab308', neutral2], borderRadius: 6 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: `${date} 共 ${plans.length} 项` } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+  }
+
+  // 统计页日期切换 → 重绘任务图表
+  $('#stats-task-date').addEventListener('change', () => { if (currentPage() === 'stats') renderTaskCharts(); });
+
+  /* ---------- 14c. AI 助手（默认直连 DashScope，可选经 Flask 后端代理） ---------- */
+
+  // 三种模式各自的系统提示词与调用参数（与后端模板保持一致）
+  const AI_PROMPTS = {
+    plan: {
+      system: (
+        "你是一位资深教育专家。请根据用户提供的学习目标，生成一份结构化的学习计划。\n\n"
+        + "计划必须包含以下部分：\n"
+        + "1. 总体学习目标（一句话概括）\n"
+        + "2. 学习时间安排（建议每天投入时长）\n"
+        + "3. 3-5个具体可执行的学习任务。每个任务用「任务1：」等阿拉伯数字加冒号开头，紧接着写【任务标题】（即任务名称）；"
+        + "随后用三行小项列出细节：\n- 内容：（具体要学什么）\n- 用时：（预计耗时）\n- 完成标准：（怎样算学会）\n"
+        + "例如：\n任务1：掌握函数极限的定义\n- 内容：理解 ε-δ 定义，完成课本例题\n- 用时：1 小时\n- 完成标准：能独立推导并讲解\n任务2：……（至少3个，至多5个）\n"
+        + "4. 学习资源推荐（书籍、视频、网站等）\n"
+        + "5. 自我检测方法（如何检验学习效果）\n\n"
+        + "注意：每个任务的【标题】会作为任务名称保存，标题下方的【内容/用时/完成标准】会一并作为该任务的备注保存。\n"
+        + "输出为纯文本，语言简洁明了；不要输出 JSON 或代码块。"
+      ),
+      temperature: 0.5, max_tokens: 1500, enable_thinking: false
+    },
+    analyze: {
+      system: (
+        "你是一位学术文献分析专家。请对以下文档内容进行深度解析。\n\n"
+        + "请严格按照以下格式输出四个部分：\n\n"
+        + "【内容摘要】\n用200字以内概括文档的核心内容和主旨。\n\n"
+        + "【关键概念】\n提取3-5个文档中最重要的专业术语，每个术语单独列出并给出通俗易懂的解释。\n\n"
+        + "【学习建议】\n基于文档内容，给出具体可操作的学习建议，包括重点关注的章节、拓展阅读建议、理论与实践结合的方法。\n\n"
+        + "【难点分析】\n分析文档中可能最难理解的部分，包括最难懂的概念、易错点、突破方法。"
+      ),
+      temperature: 0.2, max_tokens: 5000, enable_thinking: true
+    },
+    translate: {
+      system: "你是一位翻译专家，请把用户文本翻译为指定的目标语言，只返回译文，不要解释。",
+      temperature: 0.3, max_tokens: 4000, enable_thinking: false
+    },
+    // 4. 信息聚合搜索：阶段一，基于 BROKE 框架把用户的简单问题扩写为「增强版提示词」
+    aggregate: {
+      system: (
+        "你是一位顶级的提示词工程专家，擅长用 BROKE 框架把模糊的需求改写成可执行的指令。\n"
+        + "用户会给你一个简单的问题或需求（可能只有一句话）。请基于 BROKE 框架，把它扩写成一份结构化的「增强版提示词」。\n"
+        + "必须包含且仅包含以下五个部分（用方头括号标题标注，顺序一致）：\n"
+        + "【Background 背景】结合常识自动补充「发生了什么 / 用户可能在什么场景下、以什么身份提出这个问题」，让问题背景更完整。\n"
+        + "【Role 角色】为 AI 指派一个最合适的专业身份（如行业分析师、资深研究员、技术专家、科普作家等），以激活对应领域知识；一句话说明为何合适。\n"
+        + "【Objectives 目标】明确本次 AI 需要完成的任务——即围绕该问题聚合搜索 / 调用已有知识，给出准确、可靠、有依据且可执行的答复。\n"
+        + "【Key Results 关键结果】定义输出标准：回答结构（如分点 / 分段 / 对比表）、字数或篇幅上限、语言风格（严谨或通俗）、需要覆盖的信息维度（现状、趋势、风险、建议等）。\n"
+        + "【Evolve 改进】给出一句引导语，说明用户在后续对话中可如何追加指令（例如「补充某年份数据」「换成更通俗的解释」「缩短到 X 字」）来动态微调结果。\n"
+        + "只输出这份结构化增强提示词本身，不要输出多余的解释或客套话。使用中文。"
+      ),
+      temperature: 0.4, max_tokens: 1500, enable_thinking: false
+    },
+    // 阶段二：依据增强提示词作答（messages 由调用方构造，system 见下方 AGG_ANSWER_SYSTEM）
+    aggregateAnswer: {
+      temperature: 0.4, max_tokens: 4000, enable_thinking: true
+    }
+  };
+
+  // 信息聚合搜索阶段二的系统提示词：让模型扮演 BROKE 中指定的专业角色，按增强提示词作答
+  const AGG_ANSWER_SYSTEM = (
+    "你正在扮演 BROKE 框架里【Role 角色】所指定的专业身份。请严格依据下方【增强版提示词（BROKE）】的要求，围绕用户的问题聚合相关信息并给出答复。\n"
+    + "要求：\n"
+    + "- 优先使用你掌握的事实、常识与推理给出准确、可靠、有依据的内容；若涉及时效性强或无法确认的数据，请明确说明并给出可靠的获取建议，不要编造。\n"
+    + "- 遵循增强提示词中【Key Results 关键结果】规定的结构、篇幅与语言风格。\n"
+    + "- 若用户在后续轮次追加了新指令（Evolve），请在保留原目标与角色的前提下，动态优化本轮输出。\n"
+    + "- 回答应结构清晰、可直接使用，避免空话。"
+  );
+
+  const DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+
+  // 判断某模型是否为「混合思考模型」——即支持用 enable_thinking 参数切换思考/非思考模式。
+  // 覆盖：Qwen3 系、QwQ、DeepSeek-V4 系（pro/flash 等）、DeepSeek-V3.2（不含 v3.2-exp，它仅支持非思考）。
+  // 其余模型（qwen-max/qwen-plus/qwen-flash/deepseek-v3/r1/v3.1 等）传 enable_thinking 会被 DashScope 拒（400），故不附带。
+  function isThinkingModel(m) {
+    return /qwen3|qwq|deepseek-v4|deepseek-v3\.2(?!-exp)/i.test(m || "");
+  }
+
+  // 统一 AI 调用。
+  //   - 若设置里填了「后端代理地址」(aiApiUrl)，则走后端 /api/chat（兼容已部署的 Flask）。
+  //   - 否则默认直连 DashScope（已验证支持浏览器 CORS，密钥仅存本机，个人单机用安全）。
+
+  // 仅在「超时（AbortError）」时自动重试若干次；其余错误（密钥无效 / 限流 429 / 参数错误 / CORS 拦截）
+  // 属于确定性失败，重试无意义，直接抛出以免无谓等待。默认 maxAttempts=1（不重试）。
+  async function withRetry(maxAttempts, onRetry, fn) {
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn(attempt);
+      } catch (e) {
+        lastErr = e;
+        const isTimeout = /超时/.test(e.message || "");
+        if (attempt < maxAttempts && isTimeout) {
+          if (onRetry) onRetry(attempt + 1);
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw lastErr;
+  }
+
+  async function callAI(mode, userPrompt, opts = {}) {
+    const st = load(LS.settings, {});
+    const key = st.aiApiKey;
+    const model = opts.model || st.aiModel || "qwen3.8-max";
+    if (!key) throw new Error("API Key 未配置，请先到「设置」页填写");
+    const cfg = AI_PROMPTS[mode];
+    if (!cfg) throw new Error("未知请求类型：" + mode);
+
+    const timeout = opts.timeout || 120000; // 思考 / 聚合类请求较慢，默认 120s
+    const maxAttempts = opts.maxAttempts || 1; // 仅在超时(AbortError)时自动重试，默认不重试
+    const onRetry = opts.onRetry;
+
+    // 统一组装完整 messages（含 system）；多轮追问等场景调用方已通过 opts.messages 传好，则直接使用。
+    const messages = opts.messages ? opts.messages : (() => {
+      const userMsg = mode === "translate"
+        ? ("目标语言：" + (opts.targetLang || "英语") + "\n文本：\n" + userPrompt)
+        : userPrompt;
+      return [
+        { role: "system", content: cfg.system },
+        { role: "user", content: userMsg }
+      ];
+    })();
+    // enable_thinking 仅「混合思考模型」支持（Qwen3 系、QwQ、DeepSeek-V4 系、DeepSeek-V3.2 等）；
+    // 其它模型（qwen-max/qwen-plus/qwen-flash/deepseek-v3/r1/v3.1 等）传了会报 400，故按需附带。
+    const reqBody = {
+      model: model,
+      messages: messages,
+      temperature: cfg.temperature,
+      max_tokens: cfg.max_tokens
+    };
+    if (isThinkingModel(model)) reqBody.enable_thinking = cfg.enable_thinking;
+
+    // —— 优先：经 Flask 后端代理转发（推荐；可绕过浏览器直连 DashScope 的 CORS 限制） ——
+    const apiUrl = (st.aiApiUrl || "").replace(/\/+$/, "");
+    if (apiUrl && !opts.direct) {
+      return await withRetry(maxAttempts, onRetry, async () => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const body = Object.assign({ apiKey: key }, reqBody);
+        let res;
+        try {
+          res = await fetch(apiUrl + "/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: ctrl.signal
+          });
+        } catch (e) {
+          clearTimeout(timer);
+          if (e.name === "AbortError") throw new Error("连接后端代理超时（已超过 " + Math.round(timeout / 1000) + " 秒），请检查后端地址或网络");
+          throw new Error("网络请求失败（连接后端代理失败）：" + (e.message || "未知错误"));
+        }
+        clearTimeout(timer);
+        let j = {};
+        try { j = await res.json(); } catch (_) {}
+        if (!res.ok || !j.ok) {
+          throw new Error((j && j.error) || ("后端代理请求失败（HTTP " + res.status + "）"));
+        }
+        return j.content;
+      });
+    }
+
+    // —— 兜底：直连 DashScope 兼容模式（会被浏览器 CORS 拦截，仅 file:// 等场景可用） ——
+    return await withRetry(maxAttempts, onRetry, async () => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      let res;
+      try {
+        res = await fetch(DASHSCOPE_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + key
+          },
+          body: JSON.stringify(reqBody),
+          signal: ctrl.signal
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e.name === "AbortError") throw new Error("网络超时（已超过 " + Math.round(timeout / 1000) + " 秒）：聚合 / 思考类查询在思考模型下可能较慢。建议：①换用更快的模型（如 qwen-max / qwen-plus）；②简化问题或缩短篇幅要求；③稍后重试。");
+        // "Failed to fetch" 通常即浏览器跨域(CORS)拦截：DashScope 不开放浏览器直连，
+        // 需在「设置 → AI 助手配置」填写「后端代理地址」经后端转发。
+        const isCors = (e && e.message && String(e.message).indexOf('Failed to fetch') >= 0);
+        const hint = isCors
+          ? '浏览器直连 DashScope 被跨域(CORS)拦截。请部署后端代理并在「设置 → AI 助手配置」填写「后端代理地址」（步骤见 backend/部署说明.md）。'
+          : ((e && e.message) || '未知错误');
+        throw new Error("网络请求失败（无法连接 DashScope）：" + hint);
+      }
+      clearTimeout(timer);
+      let j = {};
+      try { j = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        const errMsg = (j && (j.message || (j.error && j.error.message))) || ("HTTP " + res.status);
+        if (res.status === 401) throw new Error("API Key 无效或已过期，请检查设置里的 Key");
+        if (res.status === 429) throw new Error("请求过于频繁（429），请稍后重试");
+        throw new Error("DashScope 返回错误：" + errMsg);
+      }
+      const content = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
+      if (!content) throw new Error("AI 返回内容为空");
+      return content;
+    });
+  }
+
+  // 从 AI 生成的学习计划文本中，按「任务N：」拆分；每段首行作为任务名称，其余文字归入任务备注。
+  function parsePlanItems(text) {
+    const blocks = (text || '').split(/任务\s*\d+\s*[：:]/i).slice(1);
+    const items = [];
+    for (const b of blocks) {
+      const lines = b.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) continue;
+      let name = lines.shift().replace(/^名称[：:]\s*/, '').trim();
+      if (!name) continue;
+      const note = lines.join('\n').trim();
+      items.push({ name, note });
+    }
+    return items;
+  }
+
+  // 1) 生成学习计划（提示词在后端，前端展示完整文本并解析保存）
+  $('#ai-gen-plan-btn').addEventListener('click', async () => {
+    const goal = $('#ai-goal-input').value.trim();
+    if (!goal) { toast('请先输入学习目标'); return; }
+    const btn = $('#ai-gen-plan-btn'), loading = $('#ai-gen-plan-loading'), res = $('#ai-plan-result');
+    btn.disabled = true; loading.hidden = false; res.hidden = true;
+    try {
+      const text = await callAI('plan', goal);
+      setHTML(res, `<div class="ai-plan-text">${escapeHtml(text)}</div>`
+        + `<div class="ai-actions" style="margin-top:12px"><button class="btn-primary" id="ai-plan-save">保存到任务</button></div>`);
+      res.hidden = false;
+      $('#ai-plan-save').addEventListener('click', async () => {
+        const items = parsePlanItems(text);
+        if (!items.length) { toast('未能从计划中提取到任务，请手动添加'); return; }
+        for (const it of items) {
+          await saveTask({ name: it.name, tag: '学习', note: it.note || '', done: false });
+        }
+        setHTML(res, '<div class="ai-err" style="color:#10B981">✅ 已保存 ' + items.length + ' 个任务到「任务」列表</div>');
+        await renderTasks();
+      });
+    } catch (e) { res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`); }
+    finally { btn.disabled = false; loading.hidden = true; }
+  });
+
+  // 文献文本提取（PDF 用 pdf.js，其余按文本读取）
+  async function readDocFile(file) {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.pdf')) {
+      if (typeof pdfjsLib === 'undefined') throw new Error('PDF 解析库未加载，请联网后重试');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      let text = '';
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const c = await page.getTextContent();
+        text += c.items.map((it) => it.str).join(' ') + '\n';
+      }
+      return text.trim();
+    }
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error('文件读取失败'));
+      r.readAsText(file);
+    });
+  }
+
+  // 把 AI 返回的四大段解析为带标题的 HTML
+  function renderDocSections(text) {
+    const titles = ['内容摘要', '关键概念', '学习建议', '难点分析'];
+    let html = '';
+    for (const title of titles) {
+      const m = text.match(new RegExp('【' + title + '】([\\s\\S]*?)(?=【|$)'));
+      const body = m ? m[1].trim() : '';
+      if (!body) continue;
+      const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+      const asList = lines.length > 1 && lines.every((l) => /^[-•]/.test(l));
+      html += `<h4>${title}</h4>` + (asList
+        ? '<ul>' + lines.map((l) => '<li>' + escapeHtml(l.replace(/^[-•]\s*/, '')) + '</li>').join('') + '</ul>'
+        : `<p>${escapeHtml(body)}</p>`);
+    }
+    return html || `<p>${escapeHtml(text)}</p>`;
+  }
+
+  // 多轮对话渲染与 PDF 导出（翻译 / 文献解析 / 信息聚合搜索共用）
+  function renderChat(containerId, history, { renderAssistant, maxUserLen = 400, broke = null } = {}) {
+    // 容错：containerId 可能是「带 # 的选择器 / 不带 # 的 id / DOM 元素本身」。
+    // 统一规整为空值安全的元素引用，避免「Cannot set properties of null (setting 'hidden')」——
+    // 此前直接 $(裸id) 会被当成标签选择器（document.querySelector('ai-doc-result')）返回 null。
+    const sel = (typeof containerId === 'string')
+      ? (containerId.startsWith('#') ? containerId : '#' + containerId)
+      : containerId;
+    const container = (typeof sel === 'string')
+      ? document.querySelector(sel)
+      : (sel && sel.nodeType ? sel : null);
+    if (!container) { console.warn('[renderChat] 容器元素不存在，已安全跳过：', containerId); return; }
+    if (!history || !history.length) { container.hidden = true; setHTML(container, ''); return; }
+    let html = '';
+    if (broke) {
+      html += '<details class="agg-broke"><summary>📋 自动生成的增强提示词（BROKE）</summary>'
+        + '<div class="agg-broke-body">' + escapeHtml(broke) + '</div></details>';
+    }
+    html += '<div class="ai-chat">';
+    for (const m of history) {
+      if (m.role === 'user') {
+        let txt = m.content;
+        if (maxUserLen && txt.length > maxUserLen) txt = txt.slice(0, maxUserLen) + '…';
+        html += '<div class="ai-msg ai-user"><span class="ai-who">你</span><div class="ai-bubble">'
+          + escapeHtml(txt) + '</div></div>';
+      } else {
+        const body = renderAssistant ? renderAssistant(m.content) : ('<p>' + escapeHtml(m.content) + '</p>');
+        html += '<div class="ai-msg ai-ai"><span class="ai-who">AI</span><div class="ai-bubble">'
+          + body + '</div></div>';
+      }
+    }
+    html += '</div>';
+    setHTML(container, html);
+    container.hidden = false;
+  }
+
+  // 导出为 HTML 文件（原生实现，无需第三方库）：完整保留每一轮对话、
+  // 明确区分用户/AI、顺序正确、内容无遗漏，并内联样式便于阅读。
+  function exportChatToHTML(title, history, { filenamePrefix = 'AI对话', renderAssistant, broke = null } = {}) {
+    if (!history || !history.length) { toast('当前没有可导出的对话'); return; }
+    const st = load(LS.settings, {});
+    const model = st.aiModel || 'qwen3.8-max';
+    const dateStr = new Date().toLocaleString('zh-CN');
+    const esc = (s) => escapeHtml(s);
+
+    // 按原始 history 顺序逐轮渲染，用户与 AI 用不同样式区分
+    let body = '';
+    for (const m of history) {
+      if (m.role === 'user') {
+        body += '<div class="msg user"><div class="who">你</div><div class="bubble">' + esc(m.content) + '</div></div>';
+      } else {
+        const content = renderAssistant ? renderAssistant(m.content) : ('<p>' + esc(m.content) + '</p>');
+        body += '<div class="msg ai"><div class="who">AI</div><div class="bubble">' + content + '</div></div>';
+      }
+    }
+
+    const brokeHtml = broke
+      ? '<details class="broke" open><summary>增强提示词（BROKE）</summary><pre>' + esc(broke) + '</pre></details>'
+      : '';
+
+    const doc = '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
+      + '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+      + '<title>' + esc(title) + ' · 对话导出</title>\n<style>\n'
+      + '  * { box-sizing: border-box; }\n'
+      + '  body { margin: 0; padding: 28px 18px; background: #f5f7fa; color: #1f2937; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif; line-height: 1.7; }\n'
+      + '  .wrap { max-width: 860px; margin: 0 auto; background: #fff; border-radius: 14px; padding: 26px 24px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }\n'
+      + '  h1 { font-size: 20px; margin: 0 0 6px; }\n'
+      + '  .meta { color: #6b7280; font-size: 13px; margin: 0 0 18px; }\n'
+      + '  .broke { margin-bottom: 18px; border: 1px dashed #c7d2fe; border-radius: 10px; padding: 10px 14px; background: #eef2ff; }\n'
+      + '  .broke summary { cursor: pointer; font-weight: 600; color: #3730a3; }\n'
+      + '  .broke pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #374151; margin: 8px 0 0; }\n'
+      + '  .chat { display: flex; flex-direction: column; }\n'
+      + '  .msg { margin-bottom: 16px; display: flex; flex-direction: column; }\n'
+      + '  .who { font-size: 12px; color: #6b7280; margin-bottom: 4px; }\n'
+      + '  .bubble { padding: 11px 15px; border-radius: 14px; font-size: 14px; max-width: 100%; word-break: break-word; overflow-wrap: anywhere; }\n'
+      + '  .msg.user { align-items: flex-end; }\n'
+      + '  .msg.user .who { text-align: right; }\n'
+      + '  .msg.user .bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 3px; }\n'
+      + '  .msg.ai .bubble { background: #f3f4f6; border: 1px solid #e5e7eb; border-bottom-left-radius: 3px; }\n'
+      + '  .msg.ai h2, .msg.ai h3, .msg.ai h4 { margin: 10px 0 6px; }\n'
+      + '  .msg.ai p { margin: 0 0 10px; }\n'
+      + '  .msg.ai pre { background: #1f2937; color: #f9fafb; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }\n'
+      + '  .msg.ai code { background: #eceff3; padding: 1px 5px; border-radius: 4px; font-size: 13px; color: #111827; }\n'
+      + '  .msg.ai table { border-collapse: collapse; width: 100%; margin: 6px 0 12px; font-size: 13px; }\n'
+      + '  .msg.ai th, .msg.ai td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }\n'
+      + '  .msg.ai th { background: #f9fafb; }\n'
+      + '  .msg.ai ul, .msg.ai ol { margin: 0 0 10px; padding-left: 22px; }\n'
+      + '  .footer { margin-top: 22px; padding-top: 14px; border-top: 1px solid #eef0f3; color: #9ca3af; font-size: 12px; text-align: center; }\n'
+      + '</style>\n</head>\n<body>\n<div class="wrap">\n'
+      + '<h1>' + esc(title) + '</h1>\n'
+      + '<p class="meta">模型：' + esc(model) + ' · 导出时间：' + esc(dateStr) + '</p>\n'
+      + brokeHtml + '\n'
+      + '<div class="chat">' + body + '</div>\n'
+      + '<div class="footer">由 Time Recorder · AI 助手导出</div>\n'
+      + '</div>\n</body>\n</html>';
+
+    const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filenamePrefix + '_' + new Date().toISOString().slice(0, 10) + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('已导出 HTML 文件');
+  }
+
+  // 2) 解析文献（支持多轮追问）
+  let docChat = { originalText: '', history: [] };
+  function renderDocChat() {
+    renderChat('ai-doc-result', docChat.history, { renderAssistant: renderDocSections, maxUserLen: 300 });
+  }
+  $('#ai-parse-btn').addEventListener('click', async () => {
+    const file = $('#ai-doc-file').files[0];
+    let text = $('#ai-doc-input').value.trim();
+    if (file) {
+      try { text = await readDocFile(file); }
+      catch (e) { const res = $('#ai-doc-result'); res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`); return; }
+    }
+    if (!text) { toast('请粘贴文本或上传文件'); return; }
+    if (text.length > 100000) { toast('文档过长，请截取关键部分重试'); return; }
+    const btn = $('#ai-parse-btn'), loading = $('#ai-parse-loading');
+    btn.disabled = true; loading.hidden = false;
+    $('#ai-doc-followup-row').hidden = true; $('#ai-doc-export-row').hidden = true;
+    docChat = { originalText: text, history: [{ role: 'user', content: text }] };
+    try {
+      const answer = await callAI('analyze', text);
+      docChat.history.push({ role: 'assistant', content: answer });
+      renderDocChat();
+      $('#ai-doc-followup-row').hidden = false; $('#ai-doc-export-row').hidden = false;
+    } catch (e) {
+      const res = $('#ai-doc-result'); res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`);
+    } finally { btn.disabled = false; loading.hidden = true; }
+  });
+  async function docEvolveOnce() {
+    const f = $('#ai-doc-followup').value.trim();
+    if (!f) { toast('请输入追问内容'); return; }
+    if (!docChat.history.length) { toast('请先解析文献'); return; }
+    const btn = $('#ai-doc-evolve-btn'), loading = $('#ai-parse-loading');
+    btn.disabled = true; loading.hidden = false;
+    try {
+      const msgs = [
+        { role: 'system', content: AI_PROMPTS.analyze.system },
+        ...docChat.history,
+        { role: 'user', content: f }
+      ];
+      const answer = await callAI('analyze', '', { messages: msgs });
+      docChat.history.push({ role: 'user', content: f }, { role: 'assistant', content: answer });
+      $('#ai-doc-followup').value = '';
+      renderDocChat();
+    } catch (e) {
+      const res = $('#ai-doc-result'); res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`);
+    } finally { btn.disabled = false; loading.hidden = true; }
+  }
+  $('#ai-doc-evolve-btn').addEventListener('click', docEvolveOnce);
+  $('#ai-doc-followup').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); docEvolveOnce(); }
+  });
+
+  // 3) 翻译（支持多轮追问）
+  let transChat = { lang: '英语', history: [] };
+  function renderTransChat() {
+    renderChat('ai-trans-result', transChat.history, { renderAssistant: (t) => '<p>' + escapeHtml(t) + '</p>', maxUserLen: 400 });
+  }
+  $('#ai-trans-btn').addEventListener('click', async () => {
+    const text = $('#ai-trans-input').value.trim();
+    const lang = $('#ai-trans-lang').value;
+    if (!text) { toast('请输入要翻译的文本'); return; }
+    const userContent = '目标语言：' + lang + '\n文本：\n' + text;
+    transChat = { lang, history: [{ role: 'user', content: userContent }] };
+    const btn = $('#ai-trans-btn'), loading = $('#ai-trans-loading');
+    btn.disabled = true; loading.hidden = false;
+    $('#ai-trans-followup-row').hidden = true; $('#ai-trans-export-row').hidden = true;
+    try {
+      const msgs = [{ role: 'system', content: AI_PROMPTS.translate.system }, { role: 'user', content: userContent }];
+      const out = await callAI('translate', '', { messages: msgs });
+      transChat.history.push({ role: 'assistant', content: out });
+      renderTransChat();
+      $('#ai-trans-followup-row').hidden = false; $('#ai-trans-export-row').hidden = false;
+    } catch (e) {
+      const res = $('#ai-trans-result'); res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`);
+    } finally { btn.disabled = false; loading.hidden = true; }
+  });
+  async function transEvolveOnce() {
+    const f = $('#ai-trans-followup').value.trim();
+    if (!f) { toast('请输入追问内容'); return; }
+    if (!transChat.history.length) { toast('请先进行一次翻译'); return; }
+    const btn = $('#ai-trans-evolve-btn'), loading = $('#ai-trans-loading');
+    btn.disabled = true; loading.hidden = false;
+    try {
+      const userContent = '目标语言：' + transChat.lang + '\n' + f;
+      const msgs = [
+        { role: 'system', content: AI_PROMPTS.translate.system },
+        ...transChat.history,
+        { role: 'user', content: userContent }
+      ];
+      const out = await callAI('translate', '', { messages: msgs });
+      transChat.history.push({ role: 'user', content: f }, { role: 'assistant', content: out });
+      $('#ai-trans-followup').value = '';
+      renderTransChat();
+    } catch (e) {
+      const res = $('#ai-trans-result'); res.hidden = false; setHTML(res, `<div class="ai-err">⚠️ ${escapeHtml(e.message)}</div>`);
+    } finally { btn.disabled = false; loading.hidden = true; }
+  }
+  $('#ai-trans-evolve-btn').addEventListener('click', transEvolveOnce);
+  $('#ai-trans-followup').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); transEvolveOnce(); }
+  });
+
+  // 4) 信息聚合搜索（BROKE 框架，已支持多轮追问与 PDF 导出）
+  let agg = { broke: null, history: [] };
+
+  function setAggLoading(label) {
+    setHTML($('#agg-loading'), '<span class="spinner"></span>' + label);
+  }
+
+  function renderAgg() {
+    const res = $('#agg-result');
+    if (!agg.broke) { res.hidden = true; $('#agg-export-row').hidden = true; return; }
+    renderChat('agg-result', agg.history, { broke: agg.broke });
+    $('#agg-export-row').hidden = false;
+    res.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  async function aggEnhance(question) {
+    // 增强阶段给 180s，与作答阶段一起放宽，避免复杂背景补全也触发超时。
+    return await callAI('aggregate', question, { timeout: 180000 });
+  }
+  async function aggAnswer(question) {
+    const msgs = [
+      { role: 'system', content: AGG_ANSWER_SYSTEM },
+      { role: 'user', content: '【增强版提示词（BROKE）】\n' + agg.broke },
+      ...agg.history,
+      { role: 'user', content: question }
+    ];
+    // 聚合作答是耗时最长的阶段（思考模型 + 大上下文），放宽超时至 300s 并允许一次超时重试，
+    // 重试时通过 onRetry 更新加载提示，缓解「网络超时」误报。
+    return await callAI('aggregateAnswer', '', {
+      messages: msgs,
+      timeout: 300000,
+      maxAttempts: 2,
+      onRetry: (n) => setAggLoading('聚合搜索中…（超时，正在重试第 ' + n + ' 次）')
+    });
+  }
+
+  $('#agg-search-btn').addEventListener('click', async () => {
+    const q = $('#agg-question').value.trim();
+    if (!q) { toast('请先输入一个问题'); return; }
+    const btn = $('#agg-search-btn'), loading = $('#agg-loading'), followRow = $('#agg-followup-row'), exportRow = $('#agg-export-row');
+    btn.disabled = true; loading.hidden = false; followRow.hidden = true; exportRow.hidden = true;
+    $('#agg-followup').value = '';
+    agg = { broke: null, history: [] };
+    try {
+      setAggLoading('增强中…（自动补全背景与角色）');
+      const broke = await aggEnhance(q);
+      agg.broke = broke;
+      setAggLoading('聚合搜索中…（正在作答）');
+      const answer = await aggAnswer(q);
+      agg.history = [{ role: 'user', content: q }, { role: 'assistant', content: answer }];
+      renderAgg();
+      followRow.hidden = false;
+    } catch (e) {
+      const res = $('#agg-result');
+      res.hidden = false;
+      setHTML(res, '<div class="ai-err">⚠️ ' + escapeHtml(e.message) + '</div>');
+    } finally {
+      btn.disabled = false; loading.hidden = true;
+    }
+  });
+
+  async function aggEvolveOnce() {
+    const f = $('#agg-followup').value.trim();
+    if (!f) { toast('请输入追问 / 调整内容'); return; }
+    if (!agg.broke) { toast('请先发起一次聚合搜索'); return; }
+    const btn = $('#agg-evolve-btn'), loading = $('#agg-loading');
+    btn.disabled = true; loading.hidden = false;
+    setAggLoading('优化中…（Evolve）');
+    try {
+      const answer = await aggAnswer(f);
+      agg.history.push({ role: 'user', content: f }, { role: 'assistant', content: answer });
+      $('#agg-followup').value = '';
+      renderAgg();
+    } catch (e) {
+      const res = $('#agg-result');
+      res.hidden = false;
+      setHTML(res, '<div class="ai-err">⚠️ ' + escapeHtml(e.message) + '</div>');
+    } finally {
+      btn.disabled = false; loading.hidden = true;
+    }
+  }
+  $('#agg-evolve-btn').addEventListener('click', aggEvolveOnce);
+  $('#agg-followup').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aggEvolveOnce(); }
+  });
+
+  // AI 对话 PDF 导出（按模块绑定）
+  $('#agg-export-btn').addEventListener('click', () => exportChatToHTML('🔍 信息聚合搜索', agg.history, { filenamePrefix: 'TimeRecorder_AI_Aggregate', broke: agg.broke }));
+  $('#ai-trans-export-btn').addEventListener('click', () => exportChatToHTML('🌐 翻译', transChat.history, { filenamePrefix: 'TimeRecorder_AI_Translate', renderAssistant: (t) => '<p>' + escapeHtml(t) + '</p>' }));
+  $('#ai-doc-export-btn').addEventListener('click', () => exportChatToHTML('📄 解析文献', docChat.history, { filenamePrefix: 'TimeRecorder_AI_DocParse', renderAssistant: renderDocSections }));
+
+  // 设置页：保存 AI 配置（后端代理地址可选，留空则直连 DashScope）
+  $('#ai-save-btn').addEventListener('click', () => {
+    const cur = load(LS.settings, {});
+    cur.aiApiUrl = $('#ai-api-url').value.trim() || '';
+    cur.aiApiKey = $('#ai-api-key').value.trim();
+    cur.aiModel = $('#ai-model').value.trim() || 'qwen3.8-max';
+    save(LS.settings, cur);
+    toast('AI 配置已保存');
+  });
+
+  // 测试连接：用一次极小的翻译请求验证 Key 是否有效（目标语言固定英语，文本极短）
+  $('#ai-test-btn').addEventListener('click', async () => {
+    const btn = $('#ai-test-btn'), status = $('#ai-test-status');
+    const key = $('#ai-api-key').value.trim();
+    if (!key) { status.textContent = '⚠️ 请先填写 API Key'; status.style.color = '#EF4444'; return; }
+    btn.disabled = true; status.textContent = '测试中…'; status.style.color = 'var(--text-soft)';
+    try {
+      await callAI('translate', 'ping', { targetLang: '英语', timeout: 30000 });
+      status.textContent = '✅ 连接成功（Key 有效）'; status.style.color = '#10B981';
+    } catch (e) {
+      status.textContent = '❌ ' + e.message; status.style.color = '#EF4444';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ---------- 15. 启动 ---------- */
+  (async function boot() {
+    const ok = await initAuth();
+    if (ok) await enterApp();
+    else { $('#login-view').hidden = false; $('#app-view').hidden = true; setSyncStatus(); }
+  })();
+  </script>
+</body>
+</html>

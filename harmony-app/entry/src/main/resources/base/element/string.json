@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Time Recorder entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Time Recorder main ability"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Time Recorder"
+    },
+    {
+      "name": "perm_internet_reason",
+      "value": "用于加载云端脚本(Supabase/Chart.js)与跨设备同步"
+    }
+  ]
+}
