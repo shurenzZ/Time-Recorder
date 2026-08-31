@@ -27,6 +27,7 @@ harmony-app/.cxx/
 .DS_Store
 Thumbs.db
 *.log
+.idea/
 
 # ---- 项目内部数据（WorkBuddy 会话记忆，含内部配置信息，不公开） ----
 .workbuddy/

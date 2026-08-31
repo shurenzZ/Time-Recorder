@@ -1,10 +1,11 @@
 {
-  "modelVersion": "6.1.1",
+  "modelVersion": "5.0.0",
   "name": "timerecorder",
   "version": "1.0.0",
   "description": "Time Recorder - HarmonyOS wrapper",
   "main": "",
   "author": "",
   "license": "Apache-2.0",
-  "dependencies": {}
+  "dependencies": {
+  }
 }
