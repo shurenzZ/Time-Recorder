@@ -25,10 +25,10 @@
 
 ## 🚀 快速开始
 
-- **网页版**：直接打开 `Time Recorder.html`（或访问在线体验地址），或用浏览器打开 `dist/index.html`。
+- **网页版**：直接打开 `Time Recorder.html`，或访问在线版 **https://shurenzz.github.io/Time-Recorder/**（GitHub Pages 自动部署）。
 - **Windows 桌面版**：从 **GitHub Release** 下载免安装 exe（见下方「📦 下载」），双击即用；或按「🛠 开发构建」自行打包。
 
-> 网页版在线体验地址：https://04d7a58ec3914f41a79752264ed0683a.sh2.agentos-app.net
+> 网页版在线地址：https://shurenzz.github.io/Time-Recorder/（GitHub Pages，随仓库 `main` 分支自动更新）
 > 仓库地址：https://github.com/shurenzZ/Time-Recorder
 
 ## 📦 下载
