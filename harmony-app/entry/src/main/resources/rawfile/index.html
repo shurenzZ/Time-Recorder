@@ -287,6 +287,17 @@
     .plan-done-sep::before, .plan-done-sep::after {
       content: ''; flex: 1; height: 1px; background: var(--border);
     }
+    /* 功能2：今日以前未完成栏（醒目区分于「已完成」） */
+    .plan-done-sep.plan-undone-sep { color: #d97706; gap: 8px; }
+    .plan-done-sep.plan-undone-sep::before, .plan-done-sep.plan-undone-sep::after { background: rgba(217,119,6,.35); }
+    .plan-done-sep.plan-undone-sep .sep-icon { font-size: 14px; }
+    .plan-done-sep.plan-undone-sep .sep-hint {
+      font-size: 10.5px; font-weight: 600; color: #fff; background: #d97706;
+      border-radius: 999px; padding: 1px 9px; opacity: .9;
+    }
+    .past-undone-list { padding: 2px 0 4px; }
+    .past-undone-list .plan-item { background: rgba(217,119,6,.06); border-style: dashed; }
+    .past-undone-list .plan-item:hover { border-color: #d97706; }
     .plan-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .imp-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
     .imp-high { background: #ef4444; }
@@ -303,32 +314,42 @@
 
     /* ===== 功能1：任务备注与子任务 ===== */
     .plan-note {
-      width: 100%; margin-top: 8px; padding: 6px 10px; border-radius: 10px;
-      background: var(--glass-strong); font-size: 12.5px; color: var(--text-soft);
-      line-height: 1.6; word-break: break-word;
+      width: 100%; margin-top: 9px; padding: 7px 11px; border-radius: 10px;
+      background: var(--glass-strong); border-left: 3px solid var(--accent);
+      font-size: 12.5px; color: var(--text-soft); line-height: 1.65; word-break: break-word;
     }
+    .plan-note::before { content: '📝 '; }
     .plan-subtasks {
-      width: 100%; margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
-      padding-left: 28px;
+      width: 100%; margin-top: 9px; display: flex; flex-direction: column; gap: 6px;
+      padding-left: 30px; border-left: 1px dashed var(--border); margin-left: 9px;
     }
     .plan-subtask {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      padding: 5px 10px; font-size: 13px;
+      padding: 6px 10px; font-size: 13px; transition: background-color .15s ease, border-color .15s ease;
     }
-    .plan-subtask.sub-done .sub-name { text-decoration: line-through; opacity: .5; }
-    .sub-left { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
-    .sub-left .sub-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
-    .sub-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sub-actions { display: flex; gap: 6px; flex: 0 0 auto; }
-    .sub-actions button { padding: 2px 9px; font-size: 11.5px; border-radius: 8px; }
+    .plan-subtask:hover { border-color: var(--accent); }
+    .plan-subtask.sub-done { opacity: .6; }
+    .plan-subtask.sub-done .sub-name { text-decoration: line-through; }
+    .sub-left { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; flex: 1; }
+    .sub-left .sub-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+    .sub-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .sub-actions { display: flex; gap: 5px; flex: 0 0 auto; }
+    .sub-actions button {
+      padding: 3px 10px; font-size: 11.5px; border-radius: 8px; font-weight: 600;
+      transition: background-color .15s ease, color .15s ease;
+    }
+    .sub-actions .sub-timer { background: var(--accent-soft); color: var(--accent); }
+    .sub-actions .sub-timer:hover { background: var(--accent); color: #fff; }
     .sub-actions .sub-del { background: transparent; color: var(--text-soft); }
-    .sub-actions .sub-del:hover { color: #ef4444; }
-    .sub-add-row { display: flex; gap: 6px; align-items: center; }
+    .sub-actions .sub-del:hover { background: rgba(239,68,68,.12); color: #ef4444; }
+    .sub-add-row { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
     .sub-add-row input {
-      flex: 1; min-width: 0; padding: 5px 10px; font-size: 12.5px; border-radius: 9px;
+      flex: 1; min-width: 0; padding: 6px 11px; font-size: 12.5px; border-radius: 9px;
     }
-    .sub-add-row button { padding: 5px 12px; font-size: 12px; white-space: nowrap; }
+    .sub-add-row input::placeholder { color: var(--text-soft); opacity: .7; }
+    .sub-add-row button { padding: 6px 13px; font-size: 12px; white-space: nowrap; font-weight: 600; }
+    .sub-add-row button:hover { transform: scale(1.03); }
 
     /* 右键菜单 */
     .ctx-menu {
@@ -2081,8 +2102,8 @@
       const today = todayStr();
       const pastUndone = all.filter((p) => p.planDate < today && !p.done);
       if (pastUndone.length) {
-        html += `<div class="plan-done-sep">⏳ 未完成 · ${pastUndone.length}（今日以前）</div>`;
-        html += `<div id="past-undone-wrap">${plansToHtml(pastUndone, sort)}</div>`;
+        html += `<div class="plan-done-sep plan-undone-sep"><span class="sep-icon">⏳</span><span>今日以前未完成 · ${pastUndone.length}</span><span class="sep-hint">未完成</span></div>`;
+        html += `<div id="past-undone-wrap" class="past-undone-list">${plansToHtml(pastUndone, sort)}</div>`;
       }
     }
 

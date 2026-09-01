@@ -298,7 +298,11 @@ def main():
         html_path = stage_html()
         url = html_path.resolve().as_uri()  # file:///C:/Users/.../index.html
     except Exception as e:
-        show_error("Failed to prepare app data: %s" % e)
+        show_error(
+            "Time Recorder 启动失败：无法准备应用数据。\n\n"
+            "错误信息：%s\n\n"
+            "建议：请检查磁盘空间是否充足，或尝试重新安装本应用。" % e
+        )
         return
 
     api = Bridge()
@@ -333,8 +337,11 @@ def main():
         webview.start()
     except Exception as e:
         show_error(
-            "Failed to start webview. Make sure Edge WebView2 runtime is installed.\nError: %s"
-            % e
+            "Time Recorder 无法启动窗口。\n\n"
+            "错误信息：%s\n\n"
+            "最常见原因：未安装 Microsoft Edge WebView2 运行时。\n"
+            "解决方法：到微软官网下载并安装 WebView2 运行时后重试。\n"
+            "下载地址：https://developer.microsoft.com/microsoft-edge/webview2/" % e
         )
 
 
