@@ -48,9 +48,15 @@ create table if not exists public.plans (
   plan_time   text default '',                       -- 具体时间，如 09:30（可选）
   importance  text default '' check (importance in ('', 'high', 'medium', 'low')),
   done        boolean default false,                 -- 是否完成（清单勾选）
+  note        text default '',                       -- 任务备注（可选）
+  subtasks    jsonb not null default '[]'::jsonb,    -- 子任务 [{ "id": "...", "name": "...", "done": false }]
   created_at  timestamptz not null default now()
 );
 create index if not exists plans_user_date_idx on public.plans(user_id, plan_date);
+
+-- 旧表可能缺 note / subtasks 列：补列（新版安装会被 create table 直接带上，互不影响）
+alter table public.plans add column if not exists note text not null default '';
+alter table public.plans add column if not exists subtasks jsonb not null default '[]'::jsonb;
 
 -- 开启行级安全（RLS）：未授权一律看不到
 alter table public.tasks   enable row level security;

@@ -301,6 +301,35 @@
     .imp-badge.low { background: #eab308; }
     .plan-check { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
 
+    /* ===== 功能1：任务备注与子任务 ===== */
+    .plan-note {
+      width: 100%; margin-top: 8px; padding: 6px 10px; border-radius: 10px;
+      background: var(--glass-strong); font-size: 12.5px; color: var(--text-soft);
+      line-height: 1.6; word-break: break-word;
+    }
+    .plan-subtasks {
+      width: 100%; margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
+      padding-left: 28px;
+    }
+    .plan-subtask {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 5px 10px; font-size: 13px;
+    }
+    .plan-subtask.sub-done .sub-name { text-decoration: line-through; opacity: .5; }
+    .sub-left { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+    .sub-left .sub-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+    .sub-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sub-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+    .sub-actions button { padding: 2px 9px; font-size: 11.5px; border-radius: 8px; }
+    .sub-actions .sub-del { background: transparent; color: var(--text-soft); }
+    .sub-actions .sub-del:hover { color: #ef4444; }
+    .sub-add-row { display: flex; gap: 6px; align-items: center; }
+    .sub-add-row input {
+      flex: 1; min-width: 0; padding: 5px 10px; font-size: 12.5px; border-radius: 9px;
+    }
+    .sub-add-row button { padding: 5px 12px; font-size: 12px; white-space: nowrap; }
+
     /* 右键菜单 */
     .ctx-menu {
       position: fixed; z-index: 200; min-width: 140px;
@@ -579,6 +608,7 @@
             <div class="plan-add-row">
               <input type="text" id="plan-content" placeholder="任务内容（可选）" />
               <input type="text" id="plan-tag" list="tag-list" placeholder="标签（可选）" />
+              <input type="text" id="plan-note" placeholder="备注（可选）" />
               <input type="time" id="plan-time" title="详细时间（可选）" />
               <select id="plan-importance" title="重要程度（可选）">
                 <option value="">重要程度（可选）</option>
@@ -588,7 +618,7 @@
               </select>
               <button class="btn-primary" id="add-plan-btn">+ 添加</button>
             </div>
-            <span class="hint">提示：右键清单项可跳转到计时器开始计时；标签与「计时」页的任务标签一致。</span>
+            <span class="hint">提示：右键清单项可跳转到计时器开始计时；任务下方可添加子任务并分别计时；查看今天时会显示今日以前未完成的任务栏。</span>
           </div>
 
           <div id="plan-list"></div>
@@ -1325,14 +1355,17 @@
   function getCachedPlans() { return load(CACHE.plans, []); }
 
   async function loadPlans() {
-    const local = getCachedPlans().map(p => ({ ...p, done: !!p.done }));
+    const local = getCachedPlans().map(p => ({
+      ...p, done: !!p.done, note: p.note || '', subtasks: Array.isArray(p.subtasks) ? p.subtasks : []
+    }));
     if (USE_CLOUD && currentUserId) {
       try {
         const { data, error } = await sb.from('plans').select('*').eq('user_id', currentUserId);
         if (!error && data) {
           const cloud = data.map(r => ({
             id: r.id, planDate: r.plan_date, content: r.content || '', tag: r.tag || '',
-            planTime: r.plan_time || '', importance: r.importance || '', done: !!r.done
+            planTime: r.plan_time || '', importance: r.importance || '', done: !!r.done,
+            note: r.note || '', subtasks: Array.isArray(r.subtasks) ? r.subtasks : []
           }));
           const merged = cloud.map(c => {
             const l = local.find(x => x.id === c.id);
@@ -1355,7 +1388,8 @@
       try {
         const payload = {
           user_id: currentUserId, plan_date: plan.planDate, content: plan.content || '',
-          tag: plan.tag || '', plan_time: plan.planTime || '', importance: plan.importance || '', done: !!plan.done
+          tag: plan.tag || '', plan_time: plan.planTime || '', importance: plan.importance || '', done: !!plan.done,
+          note: plan.note || '', subtasks: Array.isArray(plan.subtasks) ? plan.subtasks : []
         };
         let cloudOk = false, newId = null;
         if (plan.id && isUuid(plan.id)) {
@@ -1953,6 +1987,7 @@
 
   /* ---------- 7. 任务管理 ---------- */
   let activeTaskId = null;
+  let activeSubtaskName = null;   // 功能1：当前计时的子任务名（null = 整个任务计时）
 
   async function renderTasks() {
     // 计时页「我的任务」卡片已移除，本函数现仅用于刷新计时器的「选择任务」下拉框
@@ -1966,10 +2001,34 @@
     const todayNames = await getTodayPlanNames();
     // 下拉框也只显示今日清单任务；若当前正计时一个非今日任务，仍保留该选项以免丢失计时上下文
     const tasks = getCachedTasks().filter((t) => todayNames.has(normName(t.name)) || t.id === activeTaskId);
-    setHTML(sel, '<option value="">— 未选择任务 —</option>' +
-      tasks.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}（${escapeHtml(t.tag)}）</option>`).join(''));
-    if (activeTaskId && tasks.find((t) => t.id === activeTaskId)) sel.value = activeTaskId;
-    else if (cur && tasks.find((t) => t.id === cur)) sel.value = cur;
+    let html = '<option value="">— 未选择任务 —</option>';
+    for (const t of tasks) {
+      html += `<option value="${t.id}">${escapeHtml(t.name)}（${escapeHtml(t.tag)}）</option>`;
+      // 功能1：子任务作为可选项（value = 任务id::子任务id）
+      const plans = getCachedPlans().filter((p) => normName(p.content) === normName(t.name));
+      for (const p of plans) {
+        const subs = Array.isArray(p.subtasks) ? p.subtasks : [];
+        for (const s of subs) {
+          if (p.done) continue;
+          html += `<option value="${t.id}::${s.id}" data-sub="${escapeHtml(s.name)}">↳ ${escapeHtml(s.name)}（${escapeHtml(t.name)}）</option>`;
+        }
+      }
+    }
+    setHTML(sel, html);
+    // 恢复当前选择：子任务优先，其次普通任务
+    if (activeTaskId) {
+      const t = tasks.find((x) => x.id === activeTaskId);
+      if (t) {
+        if (activeSubtaskName) {
+          // 找到该任务下同名子任务 option
+          const opt = Array.from(sel.options).find((o) => o.dataset && o.dataset.sub === activeSubtaskName && o.value.startsWith(t.id + '::'));
+          if (opt) sel.value = opt.value;
+          else sel.value = t.id;
+        } else {
+          sel.value = t.id;
+        }
+      }
+    } else if (cur && tasks.find((t) => t.id === cur)) sel.value = cur;
   }
 
   /* ---------- 7b. 每日清单（checklist） ---------- */
@@ -1986,8 +2045,9 @@
     const tag = $('#plan-tag').value.trim();
     const planTime = $('#plan-time').value;
     const importance = $('#plan-importance').value;
-    await savePlan({ planDate, content, tag, planTime, importance, done: false });
-    $('#plan-content').value = ''; $('#plan-tag').value = ''; $('#plan-time').value = ''; $('#plan-importance').value = '';
+    const note = $('#plan-note').value.trim();
+    await savePlan({ planDate, content, tag, planTime, importance, done: false, note, subtasks: [] });
+    $('#plan-content').value = ''; $('#plan-tag').value = ''; $('#plan-note').value = ''; $('#plan-time').value = ''; $('#plan-importance').value = '';
     await renderPlans();
     syncPlansToTasks().catch(() => {});   // 清单新增后立即同步到计时任务（切到计时页也会再对齐一次）
     toast('已添加到清单');
@@ -2000,18 +2060,32 @@
     const all = await loadPlans();
     const list = all.filter((p) => p.planDate === planDate);
     const wrap = $('#plan-list');
-    if (!list.length) { setHTML(wrap, '<p class="empty">这一天还没有安排，添加一项吧</p>'); return; }
 
     const sort = $('#plan-sort').value;
-    // 已完成项沉到列表底部；分隔线后展示，组内仍按所选方式排序
-    const undone = list.filter((p) => !p.done);
-    const done = list.filter((p) => p.done);
     let html = '';
-    if (undone.length) html += plansToHtml(undone, sort);
-    if (done.length) {
-      html += `<div class="plan-done-sep">已完成 · ${done.length}</div>`;
-      html += plansToHtml(done, sort);
+    // 当日任务：未完成在上、已完成沉底
+    if (list.length) {
+      const undone = list.filter((p) => !p.done);
+      const done = list.filter((p) => p.done);
+      if (undone.length) html += plansToHtml(undone, sort);
+      if (done.length) {
+        html += `<div class="plan-done-sep">已完成 · ${done.length}</div>`;
+        html += plansToHtml(done, sort);
+      }
+    } else {
+      html += '<p class="empty">这一天还没有安排，添加一项吧</p>';
     }
+
+    // 功能2：今日以前未完成任务，统一放在「未完成」栏（仅在查看今天时展示，默认展开）
+    if (planDate === todayStr()) {
+      const today = todayStr();
+      const pastUndone = all.filter((p) => p.planDate < today && !p.done);
+      if (pastUndone.length) {
+        html += `<div class="plan-done-sep">⏳ 未完成 · ${pastUndone.length}（今日以前）</div>`;
+        html += `<div id="past-undone-wrap">${plansToHtml(pastUndone, sort)}</div>`;
+      }
+    }
+
     setHTML(wrap, html);
     bindPlanItems(wrap);
   }
@@ -2044,6 +2118,43 @@
     const content = p.content ? escapeHtml(p.content) : '<span style="color:var(--text-soft)">（无内容）</span>';
     // 已完成项：折叠隐藏标签/时间/重要度，仅留勾选框 + 划线内容，置灰更弱
     const meta = p.done ? '' : `<div class="plan-meta">${tag}${time}${impBadge}</div>`;
+
+    // 功能1：备注显示
+    let noteHtml = '';
+    if (p.note && !p.done) {
+      noteHtml = `<div class="plan-note">📝 ${escapeHtml(p.note)}</div>`;
+    }
+
+    // 功能1：子任务列表（未完成的任务显示；已完成项折叠）
+    let subHtml = '';
+    const subs = Array.isArray(p.subtasks) ? p.subtasks : [];
+    if (subs.length && !p.done) {
+      subHtml = `<div class="plan-subtasks">` + subs.map((s, i) => `
+        <div class="plan-subtask ${s.done ? 'sub-done' : ''}" data-sub-id="${s.id}">
+          <label class="sub-left">
+            <input type="checkbox" class="sub-check" ${s.done ? 'checked' : ''} data-id="${s.id}" />
+            <span class="sub-name">${escapeHtml(s.name)}</span>
+          </label>
+          <div class="sub-actions">
+            <button class="btn-ghost sub-timer" data-id="${s.id}" title="为此子任务计时">▶ 计时</button>
+            <button class="btn-danger sub-del" data-id="${s.id}" title="删除子任务">✕</button>
+          </div>
+        </div>`).join('') + `
+        <div class="sub-add-row">
+          <input type="text" class="sub-add-input" placeholder="添加子任务…" />
+          <button class="btn-ghost sub-add-btn">+ 添加</button>
+        </div>
+      </div>`;
+    } else if (!p.done) {
+      // 无子任务也显示添加行，方便直接拆分
+      subHtml = `<div class="plan-subtasks">
+        <div class="sub-add-row">
+          <input type="text" class="sub-add-input" placeholder="添加子任务…" />
+          <button class="btn-ghost sub-add-btn">+ 添加</button>
+        </div>
+      </div>`;
+    }
+
     return `<div class="plan-item ${p.done ? 'done' : ''}" data-id="${p.id}">
       <div class="plan-left">
         <input type="checkbox" class="plan-check" ${p.done ? 'checked' : ''} data-id="${p.id}" />
@@ -2051,6 +2162,8 @@
         <span class="plan-content">${content}</span>
       </div>
       ${meta}
+      ${noteHtml}
+      ${subHtml}
     </div>`;
   }
 
@@ -2069,6 +2182,64 @@
         }
       });
       item.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); showCtxMenu(e.clientX, e.clientY, id); });
+
+      // ---------- 功能1：子任务交互 ----------
+      // 勾选子任务完成/取消
+      item.querySelectorAll('.sub-check').forEach((cb) => {
+        cb.addEventListener('change', async (e) => {
+          e.stopPropagation();
+          const all = await loadPlans();
+          const p = all.find((x) => x.id === id);
+          if (!p) return;
+          const subs = Array.isArray(p.subtasks) ? p.subtasks : [];
+          const s = subs.find((x) => x.id === cb.dataset.id);
+          if (s) { s.done = cb.checked; await savePlan(p); renderPlans(); }
+        });
+      });
+      // 添加子任务
+      const addBtn = item.querySelector('.sub-add-btn');
+      const addInput = item.querySelector('.sub-add-input');
+      if (addBtn && addInput) {
+        const doAdd = async () => {
+          const name = addInput.value.trim();
+          if (!name) { toast('请输入子任务名称'); return; }
+          const all = await loadPlans();
+          const p = all.find((x) => x.id === id);
+          if (!p) return;
+          p.subtasks = Array.isArray(p.subtasks) ? p.subtasks : [];
+          p.subtasks.push({ id: uid(), name, done: false });
+          await savePlan(p);
+          renderPlans();
+          toast('已添加子任务：' + name);
+        };
+        addBtn.addEventListener('click', (e) => { e.stopPropagation(); doAdd(); });
+        addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); doAdd(); } });
+      }
+      // 删除子任务
+      item.querySelectorAll('.sub-del').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const all = await loadPlans();
+          const p = all.find((x) => x.id === id);
+          if (!p) return;
+          p.subtasks = (Array.isArray(p.subtasks) ? p.subtasks : []).filter((s) => s.id !== btn.dataset.id);
+          await savePlan(p);
+          renderPlans();
+        });
+      });
+      // 子任务计时：跳到计时页并选中该子任务
+      item.querySelectorAll('.sub-timer').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const all = await loadPlans();
+          const p = all.find((x) => x.id === id);
+          if (!p) return;
+          const subs = Array.isArray(p.subtasks) ? p.subtasks : [];
+          const s = subs.find((x) => x.id === btn.dataset.id);
+          if (!s) return;
+          await startTimingSubtask(p, s);
+        });
+      });
     });
   }
 
@@ -2120,9 +2291,26 @@
     if (!task) task = await saveTask({ name: plan.content, tag, note: '', done: !!plan.done });
     else if (task.done !== !!plan.done) { task.done = !!plan.done; await saveTask(task); }
     activeTaskId = task.id;
+    activeSubtaskName = null;
     syncTimerTaskSelect();
     switchToPage('timer');
     toast('已为你定位到计时器：' + plan.content);
+  }
+
+  // 功能1：为清单中的某个子任务开始计时
+  // 确保父任务存在于 tasks，记录 activeSubtaskName 供计时页下拉框与记录使用
+  async function startTimingSubtask(plan, sub) {
+    if (!plan.content) { toast('该清单项没有任务内容，无法计时'); return; }
+    const tag = plan.tag || '其他';
+    let tasks = await loadTasks();
+    let task = tasks.find((t) => normName(t.name) === normName(plan.content) && t.tag === tag);
+    if (!task) task = await saveTask({ name: plan.content, tag, note: '', done: !!plan.done });
+    else if (task.done !== !!plan.done) { task.done = !!plan.done; await saveTask(task); }
+    activeTaskId = task.id;
+    activeSubtaskName = sub.name;   // 记录当前要计时的子任务名
+    syncTimerTaskSelect();
+    switchToPage('timer');
+    toast(`已定位到计时器：${plan.content} → ${sub.name}`);
   }
 
   /* ---------- 8. 计时器 ---------- */
@@ -2268,12 +2456,23 @@
     let durationSec = timer.mode === 'up' ? elapsed : Math.min(timer.targetSec, elapsed);
     durationSec = Math.max(1, Math.round(durationSec));
 
-    const taskId = $('#timer-task').value;
+    const taskSel = $('#timer-task').value;
+    // 功能1：下拉框选项可能是「任务id」或「任务id::子任务id」
+    let taskId = taskSel;
+    let subtaskName = '';
+    if (taskSel && taskSel.includes('::')) {
+      const parts = taskSel.split('::');
+      taskId = parts[0];
+      // 从下拉框取子任务显示名（data-sub），保证记录准确
+      const opt = Array.from($('#timer-task').options).find((o) => o.value === taskSel);
+      subtaskName = (opt && opt.dataset && opt.dataset.sub) ? opt.dataset.sub : '';
+    }
     const tasks = getCachedTasks();
     const task = tasks.find((t) => t.id === taskId);
     const taskName = task ? task.name : '未命名任务';
     const tag = task ? task.tag : '其他';
-    const subtask = ''; // 子任务已废弃，统一用任务备注
+    const subtask = subtaskName;   // 功能1：子任务计时时记录子任务名
+    activeSubtaskName = null;      // 计时结束，清除子任务选择状态
 
     const record = {
       taskId: taskId || null, taskName, tag, subtask,
@@ -2344,8 +2543,11 @@
     if (!rows.length) { setHTML(wrap, '<p class="empty">暂无记录</p>'); setHTML(pager, ''); return; }
     let html = `<table><thead><tr><th>任务</th><th>标签</th><th>时长</th><th>日期</th><th>操作</th></tr></thead><tbody>`;
     rows.forEach((r) => {
+      const nameHtml = r.subtask
+        ? `${escapeHtml(r.taskName)} <span class="tag" style="font-weight:400">↳ ${escapeHtml(r.subtask)}</span>`
+        : escapeHtml(r.taskName);
       html += `<tr>
-        <td>${escapeHtml(r.taskName)}</td>
+        <td>${nameHtml}</td>
         <td><span class="tag">${escapeHtml(r.tag)}</span></td>
         <td>${fmtSpan(r.durationSec)}</td>
         <td>${r.date}</td>
@@ -2461,9 +2663,9 @@
   $('#export-csv-btn').addEventListener('click', () => {
     const records = getCachedRecords();
     if (!records.length) { toast('没有可导出的数据'); return; }
-    const header = '任务,标签,时长,日期,开始时间,结束时间';
+    const header = '任务,子任务,标签,时长,日期,开始时间,结束时间';
     const rows = records.slice().sort((a, b) => b.startTs - a.startTs).map((r) =>
-      [`"${r.taskName}"`, `"${r.tag}"`, fmtSpan(r.durationSec), r.date,
+      [`"${r.taskName}"`, `"${r.subtask || ''}"`, `"${r.tag}"`, fmtSpan(r.durationSec), r.date,
        new Date(r.startTs).toLocaleString(), new Date(r.endTs).toLocaleString()].join(','));
     download(`TimeRecorder_${todayStr()}.csv`, '﻿' + [header, ...rows].join('\n'), 'text/csv;charset=utf-8');
     toast('已导出 Excel(CSV)');
@@ -2493,7 +2695,7 @@
         }
         if (data.tasks) { for (const t of data.tasks) { delete t.id; await saveTask({ name: t.name, tag: t.tag, note: t.note || '', done: !!t.done }); } }
         if (data.records) { for (const r of data.records) { await addRecord({ taskId: r.taskId || null, taskName: r.taskName, tag: r.tag, subtask: r.subtask || '', durationSec: r.durationSec, date: r.date, startTs: r.startTs, endTs: r.endTs }); } }
-        if (data.plans) { for (const p of data.plans) { delete p.id; await savePlan({ planDate: p.planDate, content: p.content || '', tag: p.tag || '', planTime: p.planTime || '', importance: p.importance || '', done: !!p.done }); } }
+        if (data.plans) { for (const p of data.plans) { delete p.id; await savePlan({ planDate: p.planDate, content: p.content || '', tag: p.tag || '', planTime: p.planTime || '', importance: p.importance || '', done: !!p.done, note: p.note || '', subtasks: Array.isArray(p.subtasks) ? p.subtasks : [] }); } }
         await renderTasks(); await renderHistory(); await renderStats(); await renderPlans();
         toast('备份已导入并同步');
       } catch (err) { toast('备份文件格式错误'); }
