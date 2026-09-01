@@ -264,33 +264,9 @@ def show_error(msg):
 
 
 def _start_lock_monitor(window):
-    """Background thread: detect Windows lock screen via OpenInputDesktop and,
-    on lock, force the page to re-authenticate (window.__trForceReauth)."""
-    if sys.platform != "win32":
-        return
-    try:
-        user32 = ctypes.windll.user32
-        user32.OpenInputDesktop.restype = ctypes.c_void_p
-        user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]
-        user32.CloseDesktop.argtypes = [ctypes.c_void_p]
-        locked = False
-        while True:
-            try:
-                h = user32.OpenInputDesktop(0, False, 0x10000000)  # MAXIMUM_ALLOWED
-                now_locked = (not h)
-                if h:
-                    user32.CloseDesktop(h)
-            except Exception:
-                now_locked = locked
-            if now_locked and not locked:
-                try:
-                    window.evaluate_js("if(window.__trForceReauth)window.__trForceReauth();")
-                except Exception:
-                    pass
-            locked = now_locked
-            time.sleep(2)
-    except Exception:
-        pass
+    """(已停用) 原锁屏强制重新认证已移除：登录态持久保存，用户不点「退出」就一直保持。
+    保留函数体为空以兼容历史调用方。"""
+    return
 
 
 def main():

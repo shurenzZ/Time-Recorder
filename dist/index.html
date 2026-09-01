@@ -1506,15 +1506,13 @@
       if (u) { currentUser = u; currentUserId = 'local:' + u; return true; }
       return false;
     }
-    // 优先从 OS 凭据库恢复（OS 加密、绑定当前 Windows 用户）；并校验设备信任有效期
+    // 优先从 OS 凭据库恢复（OS 加密、绑定当前 Windows 用户）；
+    // 设备信任不过期：只要用户不主动退出登录，就始终保持登录态
     try {
       const stored = await osGetSession();
       if (stored) {
         const s = JSON.parse(stored);
-        const TRUST_MS = 30 * 24 * 3600 * 1000; // 设备信任有效期 30 天
-        if (s.savedAt && (Date.now() - s.savedAt) > TRUST_MS) {
-          await osClearSession();                       // 超期 → 视作失效，清除并要求重新认证
-        } else if (s.access_token && s.refresh_token) {
+        if (s.access_token && s.refresh_token) {
           const { error } = await sb.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token });
           if (!error) {
             const { data: { session } } = await sb.auth.getSession();
@@ -1527,7 +1525,7 @@
         }
       }
     } catch (e) {}
-    // 兜底：依赖 Supabase 自带 localStorage 持久化
+    // 兜底：依赖 Supabase 自带 localStorage 持久化（网页 / 鸿蒙 WebView 均适用）
     const { data: { session } } = await sb.auth.getSession();
     if (session && session.user) {
       currentUser = load(CACHE.user, '');
@@ -1545,32 +1543,49 @@
     localStorage.removeItem(CACHE.user);
   }
 
-  /* ---------- 4b. 本地安全凭据（Windows 凭据库，经由 pywebview 桥） ---------- */
-  // 仅当运行在桌面封装（window.pywebview.api 存在）时启用；网页/移动端自动降级为 Supabase 自带持久化。
+  /* ---------- 4b. 本地安全凭据（Windows 凭据库 / 鸿蒙系统存储，经由原生桥） ---------- */
+  // 桌面封装（pywebview）走 Windows Credential Manager；鸿蒙端走 harmonyBridge（系统偏好存储）。
+  // 网页/移动端浏览器自动降级为 Supabase 自带 localStorage 持久化。
+  function _osBridge() {
+    // 返回 { get, save, clear } 或 null
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.getStoredSession) {
+      return {
+        get: () => window.pywebview.api.getStoredSession(),
+        save: (v) => window.pywebview.api.saveSession(v),
+        clear: () => window.pywebview.api.clearSession()
+      };
+    }
+    if (window.harmonyBridge && typeof window.harmonyBridge.getStoredSession === 'function') {
+      return {
+        get: () => window.harmonyBridge.getStoredSession(),
+        save: (v) => window.harmonyBridge.saveSession(v),
+        clear: () => window.harmonyBridge.clearSession()
+      };
+    }
+    return null;
+  }
+
   async function osGetSession() {
     try {
-      if (window.pywebview && window.pywebview.api && window.pywebview.api.getStoredSession) {
-        return await window.pywebview.api.getStoredSession();
-      }
+      const b = _osBridge();
+      if (b) return await b.get();
     } catch (e) {}
     return null;
   }
   async function osSaveSession(jsonStr) {
     try {
-      if (window.pywebview && window.pywebview.api && window.pywebview.api.saveSession) {
-        await window.pywebview.api.saveSession(jsonStr);
-      }
+      const b = _osBridge();
+      if (b) await b.save(jsonStr);
     } catch (e) {}
   }
   async function osClearSession() {
     try {
-      if (window.pywebview && window.pywebview.api && window.pywebview.api.clearSession) {
-        await window.pywebview.api.clearSession();
-      }
+      const b = _osBridge();
+      if (b) await b.clear();
     } catch (e) {}
   }
 
-  // 把当前 Supabase 会话安全写入 OS 凭据库（含 token + 设备信任落库时间）
+  // 把当前 Supabase 会话安全写入本机凭据（含 token + 落库时间；不过期，退出登录才清除）
   async function persistSessionToOS() {
     try {
       const { data: { session } } = await sb.auth.getSession();
@@ -1595,10 +1610,20 @@
     const m = $('#login-msg');
     if (m) { m.textContent = msg || ''; m.className = msg ? 'msg-info' : ''; }
   }
-  // 由桌面封装在检测到系统锁屏时调用 → 强制重新认证
+  // 兼容旧版桌面封装调用（锁屏等场景）：保持登录态，不再强制重新认证。
+  // 登录态持久保存，用户不点「退出」就一直保持。
   window.__trForceReauth = async function () {
+    try {
+      // 仅刷新令牌以确保会话有效（若会话已失效才需要重新登录）
+      const { data: { session } } = await sb.auth.getSession();
+      if (session && session.user) {
+        // 会话仍有效 → 无需处理，保持登录
+        return;
+      }
+    } catch (e) {}
+    // 会话确实失效（例如 refresh_token 被服务端吊销）时才回到登录页
     try { await logout(); } catch (e) {}
-    showLoginView('🔒 设备已锁屏，出于安全请重新登录');
+    showLoginView('登录状态已失效，请重新登录');
   };
 
   function setSyncStatus() {

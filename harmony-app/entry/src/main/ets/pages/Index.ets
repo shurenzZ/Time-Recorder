@@ -1,4 +1,5 @@
 import { webview } from '@kit.ArkWeb';
+import { common } from '@kit.AbilityKit';
 import { HarmonyBridge } from '../bridge/HarmonyBridge';
 
 @Entry
@@ -6,6 +7,12 @@ import { HarmonyBridge } from '../bridge/HarmonyBridge';
 struct Index {
   private controller: webview.WebviewController = new webview.WebviewController();
   private bridge: HarmonyBridge = new HarmonyBridge();
+
+  aboutToAppear(): void {
+    // 注入 UIAbilityContext，供 bridge 使用系统偏好存储持久化登录态
+    const ctx = getContext(this) as common.UIAbilityContext;
+    (this.bridge as unknown as { ctx: common.UIAbilityContext }).ctx = ctx;
+  }
 
   build() {
     Column() {
@@ -19,7 +26,7 @@ struct Index {
         .javaScriptProxy({
           object: this.bridge,
           name: 'harmonyBridge',
-          methodList: ['showSystemNotification'],
+          methodList: ['showSystemNotification', 'getStoredSession', 'saveSession', 'clearSession'],
           controller: this.controller
         })
     }
