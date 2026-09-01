@@ -271,12 +271,12 @@
       margin-bottom: 14px; text-shadow: 0 2px 18px rgba(59,130,246,.18);
     }
     .plan-item {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
       padding: 11px 13px; border-radius: 14px;
       background: var(--surface); border: 1px solid var(--border);
       margin-bottom: 8px; cursor: default; -webkit-user-select: none; user-select: none;
     }
-    .plan-item.done { opacity: .4; padding: 7px 13px; }
+    .plan-item.done { opacity: .4; padding: 7px 13px; align-items: center; }
     .plan-item.done .plan-content { text-decoration: line-through; }
     .plan-item.done .imp-dot { display: none; }
     .plan-done-sep {
@@ -298,12 +298,15 @@
     .past-undone-list { padding: 2px 0 4px; }
     .past-undone-list .plan-item { background: rgba(217,119,6,.06); border-style: dashed; }
     .past-undone-list .plan-item:hover { border-color: #d97706; }
-    .plan-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .plan-left { display: flex; align-items: flex-start; gap: 10px; min-width: 0; flex: 1; }
     .imp-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
     .imp-high { background: #ef4444; }
     .imp-medium { background: #f59e0b; }
     .imp-low { background: #eab308; }
-    .plan-content { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plan-content {
+      font-weight: 600; white-space: normal; overflow-wrap: break-word; word-break: break-word;
+      line-height: 1.5; flex: 1; min-width: 0;
+    }
     .plan-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .plan-time { font-size: 12px; color: var(--text-soft); background: var(--glass-strong); padding: 2px 9px; border-radius: 999px; }
     .imp-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 700; color: #fff; }
@@ -331,9 +334,9 @@
     .plan-subtask:hover { border-color: var(--accent); }
     .plan-subtask.sub-done { opacity: .6; }
     .plan-subtask.sub-done .sub-name { text-decoration: line-through; }
-    .sub-left { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; flex: 1; }
+    .sub-left { display: flex; align-items: flex-start; gap: 8px; min-width: 0; cursor: pointer; flex: 1; }
     .sub-left .sub-check { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
-    .sub-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .sub-name { overflow-wrap: break-word; word-break: break-word; white-space: normal; font-weight: 500; line-height: 1.4; }
     .sub-actions { display: flex; gap: 5px; flex: 0 0 auto; }
     .sub-actions button {
       padding: 3px 10px; font-size: 11.5px; border-radius: 8px; font-weight: 600;
@@ -2154,7 +2157,7 @@
         <div class="plan-subtask ${s.done ? 'sub-done' : ''}" data-sub-id="${s.id}">
           <label class="sub-left">
             <input type="checkbox" class="sub-check" ${s.done ? 'checked' : ''} data-id="${s.id}" />
-            <span class="sub-name">${escapeHtml(s.name)}</span>
+            <span class="sub-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
           </label>
           <div class="sub-actions">
             <button class="btn-ghost sub-timer" data-id="${s.id}" title="为此子任务计时">▶ 计时</button>
@@ -2180,7 +2183,7 @@
       <div class="plan-left">
         <input type="checkbox" class="plan-check" ${p.done ? 'checked' : ''} data-id="${p.id}" />
         ${impDot}
-        <span class="plan-content">${content}</span>
+        <span class="plan-content" title="${content}">${content}</span>
       </div>
       ${meta}
       ${noteHtml}
