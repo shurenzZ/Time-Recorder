@@ -12,13 +12,15 @@ const PREFS_NAME: string = 'tr_prefs';
 
 // 暴露给网页侧的对象，网页 JS 通过 window.harmonyBridge.* 调用。
 export class HarmonyBridge {
+  // 由页面在 aboutToAppear 中注入 UIAbilityContext，用于系统偏好存储
+  public ctx: common.UIAbilityContext | null = null;
   private pref: preferences.Preferences | null = null;
 
-  // 获取（延迟初始化）系统偏好存储；需在页面加载后由 Index.ets 注入 context
+  // 获取（延迟初始化）系统偏好存储
   private getPref(): preferences.Preferences | null {
     if (this.pref) return this.pref;
     try {
-      const context = (this as unknown as { ctx: common.UIAbilityContext }).ctx;
+      const context = this.ctx;
       if (!context) return null;
       this.pref = preferences.getPreferencesSync(context, { name: PREFS_NAME });
       return this.pref;

@@ -10,8 +10,10 @@ struct Index {
 
   aboutToAppear(): void {
     // 注入 UIAbilityContext，供 bridge 使用系统偏好存储持久化登录态
-    const ctx = getContext(this) as common.UIAbilityContext;
-    (this.bridge as unknown as { ctx: common.UIAbilityContext }).ctx = ctx;
+    const host = this.getUIContext().getHostContext();
+    if (host) {
+      this.bridge.ctx = host as common.UIAbilityContext;
+    }
   }
 
   build() {
