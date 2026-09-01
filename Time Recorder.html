@@ -346,13 +346,13 @@
     .sub-actions .sub-timer:hover { background: var(--accent); color: #fff; }
     .sub-actions .sub-del { background: transparent; color: var(--text-soft); }
     .sub-actions .sub-del:hover { background: rgba(239,68,68,.12); color: #ef4444; }
-    .sub-add-row { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
-    .sub-add-row input {
-      flex: 1; min-width: 0; padding: 6px 11px; font-size: 12.5px; border-radius: 9px;
+
+    /* 任务框内联元信息（任务全称 + 标签 + 优先度，空格分隔） */
+    .plan-meta-inline {
+      font-size: 12px; font-weight: 500; color: var(--text-soft);
+      white-space: normal; overflow-wrap: break-word;
     }
-    .sub-add-row input::placeholder { color: var(--text-soft); opacity: .7; }
-    .sub-add-row button { padding: 6px 13px; font-size: 12px; white-space: nowrap; font-weight: 600; }
-    .sub-add-row button:hover { transform: scale(1.03); }
+    .plan-item.done .plan-meta-inline { display: none; }
 
     /* 右键菜单 */
     .ctx-menu {
@@ -1037,6 +1037,7 @@
   <!-- ===== 清单右键菜单 ===== -->
   <div id="ctx-menu" class="ctx-menu" hidden>
     <button data-act="timer">▶ 开始计时</button>
+    <button data-act="sub">🔗 添加子任务</button>
     <button data-act="done">✓ 标记完成</button>
     <button data-act="del" class="ctx-danger">🗑 删除</button>
   </div>
@@ -2136,12 +2137,12 @@
 
   function planItemHtml(p) {
     const impDot = p.importance ? `<span class="imp-dot imp-${p.importance}"></span>` : '';
-    const impBadge = p.importance ? `<span class="imp-badge ${p.importance}">${IMP_LABEL[p.importance]}</span>` : '';
-    const time = p.planTime ? `<span class="plan-time" title="到点提醒">⏰ ${escapeHtml(p.planTime)}</span>` : '';
-    const tag = p.tag ? `<span class="tag">${escapeHtml(p.tag)}</span>` : '';
     const content = p.content ? escapeHtml(p.content) : '<span style="color:var(--text-soft)">（无内容）</span>';
-    // 已完成项：折叠隐藏标签/时间/重要度，仅留勾选框 + 划线内容，置灰更弱
-    const meta = p.done ? '' : `<div class="plan-meta">${tag}${time}${impBadge}</div>`;
+    // 任务框格式：任务全称 + 标签 + 优先度（空格分隔，不用 - 符号）
+    const metaParts = [];
+    if (p.tag) metaParts.push(escapeHtml(p.tag));
+    if (p.importance) metaParts.push(IMP_LABEL[p.importance]);
+    const metaText = metaParts.length ? `<span class="plan-meta-inline">${metaParts.join(' ')}</span>` : '';
 
     // 功能1：备注显示
     let noteHtml = '';
@@ -2164,18 +2165,6 @@
             <button class="btn-danger sub-del" data-id="${s.id}" title="删除子任务">✕</button>
           </div>
         </div>`).join('') + `
-        <div class="sub-add-row">
-          <input type="text" class="sub-add-input" placeholder="添加子任务…" />
-          <button class="btn-ghost sub-add-btn">+ 添加</button>
-        </div>
-      </div>`;
-    } else if (!p.done) {
-      // 无子任务也显示添加行，方便直接拆分
-      subHtml = `<div class="plan-subtasks">
-        <div class="sub-add-row">
-          <input type="text" class="sub-add-input" placeholder="添加子任务…" />
-          <button class="btn-ghost sub-add-btn">+ 添加</button>
-        </div>
       </div>`;
     }
 
@@ -2183,9 +2172,8 @@
       <div class="plan-left">
         <input type="checkbox" class="plan-check" ${p.done ? 'checked' : ''} data-id="${p.id}" />
         ${impDot}
-        <span class="plan-content" title="${content}">${content}</span>
+        <span class="plan-content" title="${content}">${content}${metaText ? ' ' + metaText : ''}</span>
       </div>
-      ${meta}
       ${noteHtml}
       ${subHtml}
     </div>`;
@@ -2206,6 +2194,18 @@
         }
       });
       item.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); showCtxMenu(e.clientX, e.clientY, id); });
+      // 手机长按（约 500ms）触发右键菜单：兼容触屏设备
+      let longPressTimer = null;
+      const cancelLongPress = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
+      item.addEventListener('touchstart', (e) => {
+        const t = e.touches[0];
+        longPressTimer = setTimeout(() => {
+          showCtxMenu(t.clientX, t.clientY, id);
+        }, 500);
+      }, { passive: true });
+      item.addEventListener('touchend', cancelLongPress);
+      item.addEventListener('touchmove', cancelLongPress);
+      item.addEventListener('touchcancel', cancelLongPress);
 
       // ---------- 功能1：子任务交互 ----------
       // 勾选子任务完成/取消
@@ -2220,25 +2220,6 @@
           if (s) { s.done = cb.checked; await savePlan(p); renderPlans(); }
         });
       });
-      // 添加子任务
-      const addBtn = item.querySelector('.sub-add-btn');
-      const addInput = item.querySelector('.sub-add-input');
-      if (addBtn && addInput) {
-        const doAdd = async () => {
-          const name = addInput.value.trim();
-          if (!name) { toast('请输入子任务名称'); return; }
-          const all = await loadPlans();
-          const p = all.find((x) => x.id === id);
-          if (!p) return;
-          p.subtasks = Array.isArray(p.subtasks) ? p.subtasks : [];
-          p.subtasks.push({ id: uid(), name, done: false });
-          await savePlan(p);
-          renderPlans();
-          toast('已添加子任务：' + name);
-        };
-        addBtn.addEventListener('click', (e) => { e.stopPropagation(); doAdd(); });
-        addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); doAdd(); } });
-      }
       // 删除子任务
       item.querySelectorAll('.sub-del').forEach((btn) => {
         btn.addEventListener('click', async (e) => {
@@ -2287,6 +2268,22 @@
     const p = all.find((x) => x.id === ctxPlanId);
     hideCtxMenu();
     if (p) await startTimingPlan(p);
+  });
+  ctxMenu.querySelector('[data-act="sub"]').addEventListener('click', async () => {
+    if (!ctxPlanId) return;
+    const all = await loadPlans();
+    const p = all.find((x) => x.id === ctxPlanId);
+    hideCtxMenu();
+    if (!p) return;
+    const name = prompt('添加子任务：\n（输入子任务名称）', '');
+    if (name === null) return;            // 用户取消
+    const subName = name.trim();
+    if (!subName) { toast('子任务名称不能为空'); return; }
+    p.subtasks = Array.isArray(p.subtasks) ? p.subtasks : [];
+    p.subtasks.push({ id: uid(), name: subName, done: false });
+    await savePlan(p);
+    renderPlans();
+    toast('已添加子任务：' + subName);
   });
   ctxMenu.querySelector('[data-act="done"]').addEventListener('click', async () => {
     if (!ctxPlanId) return;
